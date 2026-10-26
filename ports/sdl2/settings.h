@@ -16,6 +16,7 @@
 typedef struct port_settings
 {
 	double mouse_speed;       /* trackball counts a pixel of mouse movement */
+	bool separate_mice;       /* each mouse is a player's trackball (Windows), the first one player 1's */
 	bool ball_rolls_on;       /* the mouse turns a ball that keeps rolling when the mouse stops */
 	double ball_drag;         /* a ball rolling on its own keeps this part of its speed a frame ... */
 	double ball_friction;     /* ... and loses this many counts a frame more */

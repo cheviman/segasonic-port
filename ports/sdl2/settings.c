@@ -27,6 +27,7 @@
 
 port_settings settings = {
 	.mouse_speed = 0.35,
+	.separate_mice = true,
 	.ball_rolls_on = true,
 	.ball_drag = 0.98,
 	.ball_friction = 0.3,
@@ -61,6 +62,10 @@ static const entry entries[] = {
 	{ "mouse", "speed",
 		"trackball counts a pixel of mouse movement (F5 and F6 change it while playing)",
 		&settings.mouse_speed, NULL, 0.05, 4.0 },
+	{ "mouse", "separate",
+		"yes: on Windows each mouse is a trackball of its own, the first one player 1's and the next ones that\n"
+		"press a button players 2 and 3, each with its own buttons; no: the mouse is player 1's",
+		NULL, &settings.separate_mice, 0.0, 0.0 },
 	{ "mouse", "rolls_on",
 		"yes: the mouse turns a ball that keeps rolling when the mouse stops or is lifted, as the arcade's\n"
 		"trackball does, and the right button holds it; no: the ball stops with the mouse (F4 changes it)",

@@ -97,6 +97,11 @@ The mouse is a pointer until a click in the window makes it player 1's trackball
 pause (Escape) gives the pointer back, and a click takes it again. Alt+F4 or Cmd+Q close the game at any
 time; the title's menu has EXIT.
 
+On Windows each mouse (a trackball too) is a trackball of its own: the first one to move is player 1's, and
+the next ones to press a button are players 2 and 3, each with its own left button (the button) and right
+button (which holds the ball). `separate = no` under `[mouse]` in `sonic.ini` makes the mouse player 1's alone,
+as on the other systems.
+
 The window, in both versions: F11 or Alt+Enter full screen, F3 smooth or sharp pixels, F4 whether the
 mouse's ball rolls on when the mouse stops, F5 and F6 the mouse slower or faster.
 

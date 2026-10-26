@@ -80,6 +80,10 @@ static bool mouse_click_taken;      /* that click, until its buttons are let go 
 #endif
 
 #include <SDL.h>
+#ifdef _WIN32
+#include "mice.h"
+#define SEPARATE_MICE 1    /* (each mouse is a player's trackball: mice.h) */
+#endif
 
 #ifdef __SWITCH__
 #include <switch.h>        /* romfsInit: the .nro's own files */
@@ -125,10 +129,13 @@ static SDL_Texture *scaled;           /* smooth pixels: the picture a whole numb
 static int scaled_times;
 static SDL_AudioDeviceID audio;
 static SDL_GameController *controllers[PLAYERS];
-static double mouse_rest[2];          /* the fractions of a count the mouse has moved and not handed on */
-static double hand[2];                /* counts the mouse has moved this frame */
-static bool hand_moved;
-static double ball[2];                /* counts a frame the ball turns */
+static double mouse_rest[PLAYERS][2];    /* the fractions of a count the mouse has moved and not handed on */
+static double hand[PLAYERS][2];          /* counts the mouse has moved this frame */
+static bool hand_moved[PLAYERS];
+static double ball[PLAYERS][2];          /* counts a frame the ball turns */
+#ifdef SEPARATE_MICE
+static bool mice_listening;              /* Raw Input tells the mice apart (mice_open) */
+#endif
 static uint64_t next_frame;           /* performance counter value the next frame waits for */
 static double shown_scale;            /* the window's scale as it was last set */
 static int shown_width;               /* ... and its picture's width (picture_width) */
@@ -552,36 +559,80 @@ static void toggle_ball_rolls_on(void)
 	settings_save();
 }
 
-/* The mouse's frame on the trackball. While the hand moves, the ball turns with it; when the hand stops
+/* The mouse's frame on a player's trackball. While the hand moves, the ball turns with it; when the hand stops
    (or is lifted to start again), the ball rolls on and slows down, as the arcade's does. The right button
-   is the hand resting on the ball: the ball only turns as the mouse moves. */
-static void roll_ball(bool hand_on_ball)
+   (of the window's one mouse) is the hand resting on the ball: the ball only turns as the mouse moves. */
+static void roll_ball(int player, bool hand_on_ball)
 {
-	if (hand_moved || hand_on_ball || !settings.ball_rolls_on)
+	if (hand_moved[player] || hand_on_ball || !settings.ball_rolls_on)
 	{
-		ball[0] = hand[0];
-		ball[1] = hand[1];
+		ball[player][0] = hand[player][0];
+		ball[player][1] = hand[player][1];
 	}
 	else
 	{
-		const double speed = hypot(ball[0], ball[1]);
+		const double speed = hypot(ball[player][0], ball[player][1]);
 		const double slower = speed * settings.ball_drag - settings.ball_friction;
 		const double keep = slower > 0.0 ? slower / speed : 0.0;
 
-		ball[0] *= keep;
-		ball[1] *= keep;
+		ball[player][0] *= keep;
+		ball[player][1] *= keep;
 	}
 	for (int axis = 0; axis < 2; axis++)
 	{
 		int whole;
 
-		mouse_rest[axis] += ball[axis];
-		whole = (int)mouse_rest[axis];
-		*(axis ? &controls.roll_y[0] : &controls.roll_x[0]) += whole;
-		mouse_rest[axis] -= whole;
-		hand[axis] = 0.0;
+		mouse_rest[player][axis] += ball[player][axis];
+		whole = (int)mouse_rest[player][axis];
+		*(axis ? &controls.roll_y[player] : &controls.roll_x[player]) += whole;
+		mouse_rest[player][axis] -= whole;
+		hand[player][axis] = 0.0;
 	}
-	hand_moved = false;
+	hand_moved[player] = false;
+}
+
+#ifdef SEPARATE_MICE
+/* Whether each mouse is its own trackball: Raw Input has told a mouse apart, and sonic.ini does not say no.
+   Until then the window's mouse events are the mouse (a remote desktop, say, sends no raw ones) */
+static bool separate_mice_now(void)
+{
+	return mice_listening && settings.separate_mice && mice_seen();
+}
+#endif
+
+/* The mice's frame: each player's mouse on their trackball, and whether a button of it is held. The window's
+   one mouse is player 1's, with its right button holding the ball, where the mice are not told apart. */
+static void roll_mice(Uint32 mouse, bool held[PLAYERS])
+{
+	for (int player = 0; player < PLAYERS; player++)
+		held[player] = false;
+#ifdef SEPARATE_MICE
+	if (separate_mice_now())
+	{
+		for (int player = 0; player < PLAYERS; player++)
+		{
+			int dx, dy;
+			unsigned down;
+
+			mice_take(player, &dx, &dy, &down);
+#ifdef SEGASONIC_CONSOLE
+			if (!mouse_held)
+				dx = dy = 0, down = 0;    /* (the pointer's, until a click takes the mouse) */
+			if (mouse_click_taken)
+				down = 0;                 /* (the click that took it is not the button) */
+#endif
+			/* the board's X counts the other way (MAME reverses it) */
+			hand[player][0] -= dx * settings.mouse_speed;
+			hand[player][1] += dy * settings.mouse_speed;
+			hand_moved[player] |= dx != 0 || dy != 0;
+			roll_ball(player, (down & 2u) != 0);    /* (the right button holds the ball, the left is the button) */
+			held[player] = (down & 1u) != 0;
+		}
+		return;
+	}
+#endif
+	roll_ball(0, (mouse & SDL_BUTTON_RMASK) != 0);
+	held[0] = (mouse & SDL_BUTTON_LMASK) != 0;
 }
 
 static void change_mouse_speed(bool faster)
@@ -730,10 +781,14 @@ static void read_events(void)
 				if (!mouse_held)
 					break;
 #endif
+#ifdef SEPARATE_MICE
+				if (separate_mice_now())
+					break;    /* (each mouse's own movement comes from Raw Input: roll_mice) */
+#endif
 				/* the board's X counts the other way (MAME reverses it) */
-				hand[0] -= event.motion.xrel * settings.mouse_speed;
-				hand[1] += event.motion.yrel * settings.mouse_speed;
-				hand_moved = true;
+				hand[0][0] -= event.motion.xrel * settings.mouse_speed;
+				hand[0][1] += event.motion.yrel * settings.mouse_speed;
+				hand_moved[0] = true;
 				break;
 			case SDL_KEYDOWN:
 				if (event.key.repeat)
@@ -824,6 +879,7 @@ static void on_controls_update(void)
 {
 	const Uint8 *keys = SDL_GetKeyboardState(NULL);
 	Uint32 mouse = SDL_GetMouseState(NULL, NULL);
+	bool mouse_down[PLAYERS];
 	s32_inputs *input = &s32_board.input;
 
 	read_events();
@@ -831,12 +887,18 @@ static void on_controls_update(void)
 	if (!mouse_held || mouse_click_taken)
 		mouse = 0;    /* (the pointer's, or the click that took the mouse) */
 #endif
-	roll_ball((mouse & SDL_BUTTON_RMASK) != 0);
+#ifdef SEPARATE_MICE
+	if (mice_listening)
+		mice_update();
+#endif
+	roll_mice(mouse, mouse_down);
 #ifndef SEGASONIC_CONSOLE
 	controls.roll_x[0] += (keys[SDL_SCANCODE_LEFT] - keys[SDL_SCANCODE_RIGHT]) * (int)lround(settings.key_roll);
 	controls.roll_y[0] += (keys[SDL_SCANCODE_DOWN] - keys[SDL_SCANCODE_UP]) * (int)lround(settings.key_roll);
-	controls.button[0] = keys[SDL_SCANCODE_Z] || keys[SDL_SCANCODE_SPACE] || (mouse & SDL_BUTTON_LMASK);
+	controls.button[0] = keys[SDL_SCANCODE_Z] || keys[SDL_SCANCODE_SPACE];
 	controls.button[1] = controls.button[2] = false;
+	for (int player = 0; player < PLAYERS; player++)
+		controls.button[player] |= mouse_down[player];
 #endif
 	for (int player = 0; player < PLAYERS; player++)
 	{
@@ -884,7 +946,8 @@ static void on_controls_update(void)
 		controls.button[0] |= (touch_held() & ACTION_BIT(ACTION_JUMP)) != 0;
 	}
 #endif
-	controls.button[0] |= (mouse & SDL_BUTTON_LMASK) != 0;
+	for (int player = 0; player < PLAYERS; player++)
+		controls.button[player] |= mouse_down[player];
 	if (!console_in_game() && (actions_pressed() & ACTION_BIT(ACTION_BACK)))
 		console_back();
 	console_actions(actions_pressed(), actions_held());
@@ -1582,6 +1645,9 @@ int main(int argc, char **argv)
 	SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
 #ifndef SEGASONIC_CONSOLE
 	SDL_SetRelativeMouseMode(SDL_TRUE);    /* (the arcade's trackball; the console's waits for a click) */
+#endif
+#ifdef SEPARATE_MICE
+	mice_listening = settings.separate_mice && mice_open(window);
 #endif
 	show_mouse_speed();
 

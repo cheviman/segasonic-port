@@ -36,7 +36,7 @@ find_program(SONIC_NPDMTOOL npdmtool HINTS ${SONIC_SWITCH_TOOLS} REQUIRED)
 find_program(SONIC_ELF2NRO elf2nro HINTS ${SONIC_SWITCH_TOOLS} REQUIRED)
 
 set(SONIC_SWITCH_TITLE_ID 05005e6a50510000)    # (homebrew's range; the .nsp's title; nacptool takes it with no 0x)
-set(SONIC_SWITCH_VERSION 1.2.2)
+set(SONIC_SWITCH_VERSION 1.3.0)
 set(SONIC_SWITCH_OUT ${SONIC_BIN_DIR}/switch)
 set(SONIC_SWITCH_ICON ${CMAKE_SOURCE_DIR}/ports/switch/icon.jpg)
 

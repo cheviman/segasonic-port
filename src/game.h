@@ -2170,6 +2170,7 @@ void queue_sound(uint8_t sound_id, uint32_t *p_write_index, uint32_t *p_write_in
 /* system/test_mode.c: the test mode: the menu, the memory, input and sound tests, the CRT test, the game and coin assignments, the bookkeeping screen, the backup clear, the output test, the exit */
 void start_test_mode(uint32_t *p_color, uint32_t *p_blocks_per_row);
 void run_test_mode(uint32_t pressed, uint16_t count, uint32_t *p_color, uint32_t *p_blocks_per_row);
+void CONSOLE_ORIGINAL(run_test_mode)(uint32_t pressed, uint16_t count, uint32_t *p_color, uint32_t *p_blocks_per_row);
 void test_menu(void);
 void draw_test_menu(void);
 void toggle_test_continue_mode(void);

@@ -73,7 +73,7 @@ void start_test_mode(uint32_t *p_color, uint32_t *p_blocks_per_row)
    toggle_test_continue_mode, 2 test_memory, 3 test_inputs, 4 test_sound, 5 test_crt, 6
    test_game_assignments, 7 test_coin_assignments, 8 test_bookkeeping, 9 test_backup_clear, 0xA
    test_outputs, 0xB exit_test_mode. */
-void run_test_mode(uint32_t pressed, uint16_t count, uint32_t *p_color, uint32_t *p_blocks_per_row)
+void CONSOLE_ORIGINAL(run_test_mode)(uint32_t pressed, uint16_t count, uint32_t *p_color, uint32_t *p_blocks_per_row)
 {
 	uint32_t color = *p_color;
 

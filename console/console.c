@@ -3254,6 +3254,38 @@ void join_character_chooser_update(uint32_t text_x)
 	original_join_character_chooser_update(text_x);
 }
 
+/* ---- the test mode (the cabinet's test switch, F2 in the window) ---- */
+
+#define SWITCH_SERVICE     0x1u     /* inputs_pressed and input_ports_active: the cabinet's service switch, */
+#define SWITCH_TEST        0x2u     /* and its test switch */
+#define TEST_MENU_LAST     0xAu     /* test_menu's items, 0 to EXIT; */
+#define TEST_MENU_SEAT     9u       /* OUTPUT TEST is one only with moving_seat_dip */
+
+/* A frame of the test mode: the actions as the cabinet's switches, as 9 and F2 are in the window. Down is
+   service (the menu's cursor down; in a test, its next option), accept test (picks, changes, leaves); up
+   moves the menu's cursor up, which the cabinet has no switch for, and in a test is service as down */
+void run_test_mode(uint32_t pressed, uint16_t count, uint32_t *p_color, uint32_t *p_blocks_per_row)
+{
+	const bool in_menu = (test_screen == 0u || test_screen == 12u) && test_screen_ready != 0u;
+	const uint32_t service = in_menu ? ACTION_BIT(ACTION_DOWN) : ACTION_BIT(ACTION_UP) | ACTION_BIT(ACTION_DOWN);
+
+	if (in_menu && (actions & ACTION_BIT(ACTION_UP)) != 0u)
+	{
+		test_cursor = (uint8_t)(test_cursor == 0u ? TEST_MENU_LAST : test_cursor - 1u);
+		if (mem_read8(moving_seat_dip) == 0u && test_cursor == TEST_MENU_SEAT)
+			test_cursor--;
+	}
+	if ((actions & service) != 0u)
+		inputs_pressed |= SWITCH_SERVICE;
+	if ((actions_held & service) != 0u)
+		input_ports_active |= SWITCH_SERVICE;
+	if ((actions & ACTION_BIT(ACTION_ACCEPT)) != 0u)
+		inputs_pressed |= SWITCH_TEST;
+	if ((actions_held & ACTION_BIT(ACTION_ACCEPT)) != 0u)
+		input_ports_active |= SWITCH_TEST;
+	original_run_test_mode(pressed, count, p_color, p_blocks_per_row);
+}
+
 /* ---- for the port ---- */
 
 #define PAUSE_ROW          2u
@@ -3274,6 +3306,8 @@ void console_actions(uint32_t pressed, uint32_t held)
 
 void console_back(void)
 {
+	if ((int8_t)test_mode < 0)
+		return;    /* (the test mode's screen: the title's menu under it is not closed, nor its lines erased) */
 	if (map_open)
 	{
 		leave_map();

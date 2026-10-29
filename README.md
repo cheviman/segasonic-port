@@ -103,6 +103,10 @@ The mouse is a pointer until a click in the window makes it player 1's trackball
 pause (Escape) gives the pointer back, and a click takes it again. Alt+F4 or Cmd+Q close the game at any
 time; the title's menu has EXIT.
 
+F2 opens the arcade's test mode (the operator's menu; INPUT TEST shows what the trackballs read). In it,
+up and down move the cursor and Enter (or A) picks, changes and leaves; 9 and F2 do it too, as the
+cabinet's service and test buttons.
+
 The window, in both versions: F11 or Alt+Enter full screen, F3 smooth or sharp pixels, F4 whether the
 mouse's ball rolls on when the mouse stops, F5 and F6 the mouse slower or faster (in SegaSonic, OPTIONS →
 TRACKBALL shows them, and Sonic moving by them).

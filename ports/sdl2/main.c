@@ -4,7 +4,7 @@
  *                 the pace, around the same game and board the headless runs check
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    25-10-2026
+ *    Modified:    29-10-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -644,6 +644,12 @@ static void tell_console_settings(void)
 	console_window_settings.volume = (int)lround(settings.volume * 5.0);
 	console_window_settings.title_music = (int)settings.title_music;
 	console_window_settings.continues = (int)settings.continues;
+	console_window_settings.stick_roll = (int)lround(settings.stick_roll);
+	console_window_settings.key_roll = (int)lround(settings.key_roll);
+	console_window_settings.mouse_speed = settings.mouse_speed;
+	console_window_settings.ball_rolls_on = settings.ball_rolls_on;
+	console_window_settings.ball_drag = settings.ball_drag;
+	console_window_settings.ball_friction = settings.ball_friction;
 	console_window_settings.changed = false;
 }
 #endif
@@ -1326,10 +1332,16 @@ static void on_frame_done(void)
 		settings.volume = console_window_settings.volume / 5.0;
 		settings.title_music = console_window_settings.title_music;
 		settings.continues = console_window_settings.continues;
+		settings.stick_roll = console_window_settings.stick_roll;
+		settings.key_roll = console_window_settings.key_roll;
+		settings.mouse_speed = console_window_settings.mouse_speed;
+		settings.ball_rolls_on = console_window_settings.ball_rolls_on;
+		settings.ball_drag = console_window_settings.ball_drag;
+		settings.ball_friction = console_window_settings.ball_friction;
 		apply_settings();
 		settings_save();
 	}
-	tell_console_settings();    /* (F11 and F3 change them too) */
+	tell_console_settings();    /* (F11, F3 and F4 to F6 change them too) */
 	if (console_best_times.changed)
 		save_times();
 	if (pause_requested)

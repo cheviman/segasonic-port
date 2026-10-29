@@ -3,7 +3,7 @@
  *    Description: what the console build tells the port
  *    Version:     0.1.0
  *    Created:     19-10-2026
- *    Modified:    25-10-2026
+ *    Modified:    29-10-2026
  *    Author:      Sebastian Toyos
  */
 #ifndef SEGASONIC_CONSOLE_H
@@ -28,6 +28,12 @@ typedef struct
 	int volume;           /* 0-10: 5 is the game's own */
 	int title_music;      /* the sound id of the song the title plays (SOUND TEST picks it) */
 	int continues;        /* a game's continues, 0-9, or -1: free play (CONTINUES) */
+	int stick_roll;       /* TRACKBALL: trackball counts a frame for a game controller's stick pushed all the way, */
+	int key_roll;         /* for an arrow key or the pad's cross held, */
+	double mouse_speed;   /* for a pixel of mouse movement */
+	bool ball_rolls_on;   /* the mouse turns a ball that keeps rolling when it stops, */
+	double ball_drag;     /* which keeps this part of its speed a frame, */
+	double ball_friction; /* and loses this many counts a frame more */
 	bool changed;
 } console_window;
 

@@ -4,7 +4,7 @@
  *                 sound, no coins, PRESS START on the title and a menu over it
  *    Version:     0.1.0
  *    Created:     19-10-2026
- *    Modified:    25-10-2026
+ *    Modified:    29-10-2026
  *    Author:      Sebastian Toyos
  *
  *    The game's C (src/) stays as the decompilation wrote it. A function listed in console/replaced.txt is
@@ -32,6 +32,8 @@
 /* inputs_pressed: player 1's start and button */
 #define PRESSED_START_1    0x10u
 #define PRESSED_BUTTON_1   0x10000u
+#define PRESSED_STARTS_2_3 0xA0u        /* players 2 and 3's starts, */
+#define PRESSED_BUTTONS    0x1050000u   /* and the three players' buttons */
 
 #define PRESS_START_ROW    25u      /* under the emblem's ribbon */
 #define MENU_ROW           23u      /* the menu's first line, under the logo */
@@ -514,6 +516,7 @@ enum
 	OPTION_WIDE,
 	OPTION_VOLUME,
 	OPTION_CONTROLS,
+	OPTION_TRACKBALL,
 	OPTION_SOUND_TEST,
 	OPTION_STAGE_SELECT,
 	OPTION_BACK,
@@ -522,19 +525,21 @@ enum
 
 static const char *const option_names[OPTION_COUNT] = {
 	"DIFFICULTY", "VITALITY", "CONTINUES", "VIDEO", "WINDOW", "FULL SCREEN", "PIXELS", "WIDE", "VOLUME", "CONTROLS",
-	"SOUND TEST", "STAGE SELECT", "BACK"
+	"TRACKBALL", "SOUND TEST", "STAGE SELECT", "BACK"
 };
 
 /* The pages: OPTIONS, and VIDEO under it (its BACK goes back to OPTIONS). A game device's build
    (SEGASONIC_HANDHELD) has no VIDEO: its picture is fixed; nor CONTROLS where the device's controls are fixed
-   (the Switch), but where they may need putting right (SEGASONIC_CONTROLS_PAGE: a handheld's own buttons) */
+   (the Switch), but where they may need putting right (SEGASONIC_CONTROLS_PAGE: a handheld's own buttons).
+   TRACKBALL (a game of its own, on the how to play's floor) is the computers' alone, as VIDEO is */
 static const int main_options[] = {
 #if defined(SEGASONIC_HANDHELD) && defined(SEGASONIC_CONTROLS_PAGE)
 	OPTION_DIFFICULTY, OPTION_VITALITY, OPTION_CONTINUES, OPTION_CONTROLS, OPTION_VOLUME,
 #elif defined(SEGASONIC_HANDHELD)
 	OPTION_DIFFICULTY, OPTION_VITALITY, OPTION_CONTINUES, OPTION_VOLUME,
 #else
-	OPTION_DIFFICULTY, OPTION_VITALITY, OPTION_CONTINUES, OPTION_VIDEO, OPTION_CONTROLS, OPTION_VOLUME,
+	OPTION_DIFFICULTY, OPTION_VITALITY, OPTION_CONTINUES, OPTION_VIDEO, OPTION_CONTROLS, OPTION_TRACKBALL,
+	OPTION_VOLUME,
 #endif
 	OPTION_SOUND_TEST, OPTION_STAGE_SELECT, OPTION_BACK
 };
@@ -552,7 +557,8 @@ static bool video_open;    /* the VIDEO page is on screen, in OPTIONS' place */
 #define WINDOW_SCALE_MOST   6
 #define VOLUME_MOST         10
 
-console_window console_window_settings = { 3, false, false, false, false, false, 5, 0x01, 3, false };
+console_window console_window_settings = { 3, false, false, false, false, false, 5, 0x01, 3, 30, 30, 0.35, true, 0.98,
+	0.3, false };
 
 static int option_choice;    /* the line chosen on the page shown */
 static int option_travel, option_wait, value_travel, value_wait;
@@ -967,9 +973,337 @@ static void run_controls(void)
 		close_controls();
 }
 
+/* ---- TRACKBALL: a game on the how to play's floor (stage 7), where player 1 moves Sonic as the trackball's
+   settings change (the port rolls the trackball by them, and keeps them in segasonic.ini) ---- */
+
+enum
+{
+	TRACKBALL_STICK,
+	TRACKBALL_KEYS,
+	TRACKBALL_MOUSE,
+	TRACKBALL_ROLLS_ON,
+	TRACKBALL_DRAG,
+	TRACKBALL_FRICTION,
+	TRACKBALL_DEFAULTS,
+	TRACKBALL_BACK,
+	TRACKBALL_ITEMS
+};
+
+static const char *const trackball_names[TRACKBALL_ITEMS] = {
+	"STICK", "KEYS", "MOUSE", "ROLLS ON", "DRAG", "FRICTION", "DEFAULTS", "BACK"
+};
+
+/* The page's lines, two a row */
+static const int trackball_lines[] = {
+	TRACKBALL_STICK, TRACKBALL_KEYS, TRACKBALL_MOUSE, TRACKBALL_ROLLS_ON, TRACKBALL_DRAG, TRACKBALL_FRICTION,
+	TRACKBALL_DEFAULTS, TRACKBALL_BACK
+};
+
+#define TRACKBALL_LINES       ((int)(sizeof(trackball_lines) / sizeof(trackball_lines[0])))
+#define TRACKBALL_TITLE_ROW   1u
+#define TRACKBALL_FIRST_ROW   3u      /* then a row every two lines, */
+#define TRACKBALL_HINT_ROW    (TRACKBALL_FIRST_ROW + (uint32_t)TRACKBALL_LINES / 2u + 1u)
+#define TRACKBALL_NAME_COLUMN 2u      /* the left line's name and value, */
+#define TRACKBALL_VALUE_COLUMN 11u
+#define TRACKBALL_HALF        19u     /* and the right one's this much further */
+#define ROLL_STEP             5       /* STICK and KEYS: 0 to 60 (the player is at its fastest from about 36 counts a */
+#define ROLL_MOST             60      /* frame along an axis: set_speed_from_trackball) */
+#define MOUSE_LEAST           0.05    /* MOUSE: as F5 and F6 change it, a fifth slower or a quarter faster */
+#define MOUSE_MOST            4.0
+#define DRAG_LEAST            90      /* DRAG: 0.90 to 1.00, in hundredths */
+#define DRAG_MOST             100
+#define FRICTION_MOST         20      /* FRICTION: 0 to 2, in tenths */
+#define TRACKBALL_TIMER       0x100   /* game_mode_timer the how to play is held at: past its captions (0xA, 0xC8),
+                                         short of its end (0x21C) */
+#define HAND_UNLIT            0x8530u /* the trackball hand's palettes (how_to_play_trackball_hand_update), lit */
+#define HAND_LIT              0x8760u /* while the ball turns */
+#define HAND_RESTS            0x31    /* the game_mode_timer its update sees: short of its rub (0x32), */
+#define HAND_RUBS             0x40    /* or past it */
+#define BUTTON_HAND_UP        0xFFu   /* the button hand's animation frame before its step: at rest, or pressing */
+#define BUTTON_HAND_DOWN      0x01u   /* (how_to_play_button_presses) */
+
+static bool trackball_open;      /* TRACKBALL's game is on: the how to play, held */
+static bool trackball_trying;    /* player 1 moves Sonic; else the lines are chosen and changed, Sonic still */
+static int trackball_choice;
+
+/* "< 30 >", "< 35% >", "< 0.98 >": 'value' with 'decimals' of its digits after a point, at least 'width'
+   characters wide (spaces before), 'unit' after it */
+static void arrow_number(char *text, int value, int decimals, int width, const char *unit)
+{
+	char digits[8];
+	int count = 0, length = 0;
+
+	do
+	{
+		digits[count++] = (char)('0' + value % 10);
+		value /= 10;
+	} while (count < 7 && (value > 0 || count <= decimals));
+	text[length++] = '<';
+	text[length++] = ' ';
+	for (; width > count + (decimals ? 1 : 0); width--)
+		text[length++] = ' ';
+	while (count > 0)
+	{
+		if (count == decimals)
+			text[length++] = '.';
+		text[length++] = digits[--count];
+	}
+	while (*unit)
+		text[length++] = *unit++;
+	text[length++] = ' ';
+	text[length++] = '>';
+	text[length] = 0;
+}
+
+/* A line's value as the page shows it; nothing for DEFAULTS and BACK */
+static void trackball_value(int line, char *text)
+{
+	switch (line)
+	{
+	case TRACKBALL_STICK:
+		arrow_number(text, console_window_settings.stick_roll, 0, 2, "");
+		return;
+	case TRACKBALL_KEYS:
+		arrow_number(text, console_window_settings.key_roll, 0, 2, "");
+		return;
+	case TRACKBALL_MOUSE:
+		arrow_number(text, (int)lround(console_window_settings.mouse_speed * 100.0), 0, 3, "%");
+		return;
+	case TRACKBALL_ROLLS_ON:
+		strcpy(text, console_window_settings.ball_rolls_on ? "< ON  >" : "< OFF >");
+		return;
+	case TRACKBALL_DRAG:
+		arrow_number(text, (int)lround(console_window_settings.ball_drag * 100.0), 2, 0, "");
+		return;
+	case TRACKBALL_FRICTION:
+		arrow_number(text, (int)lround(console_window_settings.ball_friction * 10.0), 1, 0, "");
+		return;
+	default:
+		text[0] = 0;
+		return;
+	}
+}
+
+static uint32_t trackball_row(int line)
+{
+	return TRACKBALL_FIRST_ROW + (uint32_t)line / 2u;
+}
+
+/* The lines, the chosen one yellow (none while Sonic is tried), and what accept or back does */
+static void draw_trackball(void)
+{
+	char value[16];
+	int line;
+
+	write_centered(TRACKBALL_TITLE_ROW, "TRACKBALL", MENU_CHOSEN);
+	for (line = 0; line < TRACKBALL_LINES; line++)
+	{
+		const uint32_t row = trackball_row(line);
+		const uint32_t half = (uint32_t)(line % 2) * TRACKBALL_HALF;
+		const uint8_t attribute = !trackball_trying && line == trackball_choice ? MENU_CHOSEN : MENU_TEXT;
+
+		if (line % 2 == 0)
+			erase_line(row);
+		write_text(TRACKBALL_NAME_COLUMN + half, row, trackball_names[trackball_lines[line]], attribute);
+		trackball_value(trackball_lines[line], value);
+		write_text(TRACKBALL_VALUE_COLUMN + half, row, value, attribute);
+	}
+	erase_line(TRACKBALL_HINT_ROW);
+	write_centered(TRACKBALL_HINT_ROW, trackball_trying ? "BACK TO CHANGE" : "ACCEPT TO TRY", MENU_TEXT);
+}
+
+static void erase_trackball(void)
+{
+	uint32_t row;
+
+	for (row = TRACKBALL_TITLE_ROW; row <= TRACKBALL_HINT_ROW; row++)
+		erase_line(row);
+}
+
+/* STICK and KEYS a step of ROLL_STEP, from the multiple of it at or under the value (segasonic.ini may hold
+   any) */
+static int roll_step(int roll, int step)
+{
+	const int under = roll - roll % ROLL_STEP;
+
+	if (step > 0)
+		return clamp(under + ROLL_STEP, 0, ROLL_MOST);
+	return clamp(under == roll ? under - ROLL_STEP : under, 0, ROLL_MOST);
+}
+
+static void change_trackball(int line, int step)
+{
+	console_window *window = &console_window_settings;
+
+	switch (line)
+	{
+	case TRACKBALL_STICK:
+		window->stick_roll = roll_step(window->stick_roll, step);
+		break;
+	case TRACKBALL_KEYS:
+		window->key_roll = roll_step(window->key_roll, step);
+		break;
+	case TRACKBALL_MOUSE:
+		window->mouse_speed *= step > 0 ? 1.25 : 0.8;
+		window->mouse_speed = window->mouse_speed < MOUSE_LEAST ? MOUSE_LEAST
+			: window->mouse_speed > MOUSE_MOST ? MOUSE_MOST : window->mouse_speed;
+		break;
+	case TRACKBALL_ROLLS_ON:
+		window->ball_rolls_on = !window->ball_rolls_on;
+		break;
+	case TRACKBALL_DRAG:
+		window->ball_drag = clamp((int)lround(window->ball_drag * 100.0) + step, DRAG_LEAST, DRAG_MOST) / 100.0;
+		break;
+	case TRACKBALL_FRICTION:
+		window->ball_friction = clamp((int)lround(window->ball_friction * 10.0) + step, 0, FRICTION_MOST) / 10.0;
+		break;
+	default:
+		return;
+	}
+	window->changed = true;
+}
+
+/* DEFAULTS: the port's own settings (settings.c) */
+static void trackball_defaults(void)
+{
+	console_window_settings.stick_roll = 30;
+	console_window_settings.key_roll = 30;
+	console_window_settings.mouse_speed = 0.35;
+	console_window_settings.ball_rolls_on = true;
+	console_window_settings.ball_drag = 0.98;
+	console_window_settings.ball_friction = 0.3;
+	console_window_settings.changed = true;
+}
+
+/* A game as START GAME's, which player select gives Sonic at once (character_chooser_wait) */
+static void open_trackball(void)
+{
+	close_options();
+	menu_after_title = false;
+	trackball_open = true;
+	trackball_trying = false;
+	trackball_choice = 0;
+	option_travel = value_travel = 0;
+	option_wait = value_wait = MENU_PAUSE;
+	system_mode = MODE_GAME;
+	game_mode = 0u;
+	system_mode_step = 0u;
+	game_in_progress = 0xFFu;
+	game_sees_start = true;
+}
+
+/* The game ends before it began (as leave_map ends STAGE SELECT's), back to OPTIONS on TRACKBALL, with the
+   title's song */
+static void close_trackball(void)
+{
+	uint32_t write_index = 0, write_index_address = 0;
+	int line;
+
+	erase_trackball();
+	trackball_open = false;
+	trackball_trying = false;
+	game_in_progress = 0u;
+	end_game_credits();
+	open_options();
+	for (line = 0; line < MAIN_OPTIONS; line++)
+		if (main_options[line] == OPTION_TRACKBALL)
+			option_choice = line;
+	queue_sound((uint8_t)console_window_settings.title_music, &write_index, &write_index_address);
+}
+
+/* TRACKBALL's frame, before the game's: no one joins; on the how to play's floor no scroll, and the lines.
+   Up and down choose one, left and right change it, a pick tries them (Sonic moves: back or start stops);
+   DEFAULTS puts them back, BACK (or the action back) ends the game. Sonic stays still while they change: player
+   1's trackball and button are the page's then */
+static void run_trackball(void)
+{
+	const bool was_trying = trackball_trying;
+	int step = 0, line = 0;
+
+	inputs_pressed &= ~PRESSED_STARTS_2_3;
+	if (game_mode != 1u)
+		return;
+	scroll_mode = 0u;
+	scroll_speed = 0u;
+	/* (nor the how to play's walk, path 0x14: player_state_intro_turn asks for it once, the autopilot walks
+	   it whatever the trackball says) */
+	PLAYER(PLAYER_BLOCK(1))->scene_step_seen = 0xFFu;
+	PLAYER(PLAYER_BLOCK(1))->path_request = 0u;
+	PLAYER(PLAYER_BLOCK(1))->path = 0u;
+	if (trackball_trying)
+	{
+		if ((actions & (ACTION_BIT(ACTION_BACK) | ACTION_BIT(ACTION_START))) != 0u)
+		{
+			trackball_trying = false;
+			option_wait = value_wait = MENU_PAUSE;
+		}
+	}
+	else
+	{
+		step = cursor_step(&option_travel, &option_wait, (int16_t)trackball_1_y, ACTION_UP, ACTION_DOWN);
+		trackball_choice = (trackball_choice + step + TRACKBALL_LINES) % TRACKBALL_LINES;
+		line = trackball_lines[trackball_choice];
+		step = cursor_step(&value_travel, &value_wait, (int16_t)trackball_1_x, ACTION_LEFT, ACTION_RIGHT);
+		if (step != 0)
+			change_trackball(line, step);
+		if ((actions & ACTION_BIT(ACTION_BACK)) != 0u || (picked() && line == TRACKBALL_BACK))
+		{
+			close_trackball();
+			return;
+		}
+		if (picked() && line == TRACKBALL_DEFAULTS)
+			trackball_defaults();
+		else if (picked())
+			trackball_trying = true;
+	}
+	draw_trackball();
+	if (was_trying && trackball_trying)
+		return;
+	trackball_1_x = 0;
+	trackball_1_y = 0;
+	inputs_pressed &= ~PRESSED_BUTTON_1;
+}
+
+/* The how to play's hand on the button: in TRACKBALL's game it presses the button while player 1 holds theirs
+   (and opens no caption) */
+void how_to_play_button_hand_update(void)
+{
+	uint32_t depth = 0xEEu, ignored = 0;
+
+	if (!trackball_open || stage != 7u)
+	{
+		original_how_to_play_button_hand_update();
+		return;
+	}
+	OBJECT(current_object)->animation_frame = trackball_trying && (input_ports_active & PRESSED_BUTTON_1) != 0u
+		? BUTTON_HAND_DOWN : BUTTON_HAND_UP;
+	animate_part_list_step();
+	queue_sprite_at_depth(&ignored, &depth);
+}
+
+/* The how to play's hand on the trackball: in TRACKBALL's game it rubs the ball, lit, while player 1's
+   trackball turns, and opens no caption; the scroll it starts stays stopped */
+void how_to_play_trackball_hand_update(void)
+{
+	const int16_t timer = (int16_t)game_mode_timer;
+	const bool turning = trackball_1_x != 0 || trackball_1_y != 0;
+
+	if (!trackball_open || stage != 7u)
+	{
+		original_how_to_play_trackball_hand_update();
+		return;
+	}
+	OBJECT(current_object)->sprite_palette = turning ? HAND_LIT : HAND_UNLIT;
+	game_mode_timer = turning ? HAND_RUBS : HAND_RESTS;
+	original_how_to_play_trackball_hand_update();
+	game_mode_timer = timer;
+	scroll_mode = 0u;
+	scroll_speed = 0u;
+}
+
 /* The options: up and down choose a line, left and right change its value; VIDEO and CONTROLS (their
-   pages), SOUND TEST (it plays the song, which the title plays from then on), STAGE SELECT and BACK are
-   picked; the action back is BACK */
+   pages), TRACKBALL (its game), SOUND TEST (it plays the song, which the title plays from then on), STAGE
+   SELECT and BACK are picked; the action back is BACK */
 static void run_options(void)
 {
 	int count = 0, option, step = 0;
@@ -993,6 +1327,8 @@ static void run_options(void)
 		open_video();
 	else if (option == OPTION_CONTROLS)
 		open_controls();
+	else if (option == OPTION_TRACKBALL)
+		open_trackball();
 	else if (option == OPTION_SOUND_TEST)
 	{
 		uint32_t write_index = 0, write_index_address = 0;
@@ -2353,10 +2689,14 @@ static void run_times(void)
 
 /* The game's modes: the first frame of a game the menu started sees player 1's start pressed, as the
    arcade's start frame does (run_frame_start_game runs the game in the frame of the press): that is how the
-   game takes player 1 in and lets him choose a character */
+   game takes player 1 in and lets him choose a character. TRACKBALL's game holds the how to play: its clock
+   stopped short of its end, and no button ends it (the buttons are back for the players' objects after) */
 void run_game_mode(uint32_t pressed, uint32_t position, uint32_t speed, uint16_t next_scroll_position, uint32_t object,
 	uint32_t *p_speed_value, uint32_t *p_count, uint32_t *p_cycle, uint32_t *p_list_cursor)
 {
+	bool holding = false;
+	uint32_t pressed_now = 0;
+
 	if (game_sees_start)
 	{
 		game_sees_start = false;
@@ -2382,8 +2722,23 @@ void run_game_mode(uint32_t pressed, uint32_t position, uint32_t speed, uint16_t
 		if (start_prompt_frames[player] > 0)
 			start_prompt_frames[player]--;
 	keep_idle_players_out();
+	if (trackball_open)
+	{
+		run_trackball();
+		if (!trackball_open)
+			return;    /* (BACK: OPTIONS from the next frame) */
+	}
+	holding = trackball_open && game_mode == 1u;
+	pressed_now = inputs_pressed;
+	if (holding)
+		inputs_pressed &= ~PRESSED_BUTTONS;
 	original_run_game_mode(pressed, position, speed, next_scroll_position, object, p_speed_value, p_count, p_cycle,
 		p_list_cursor);
+	if (holding)
+	{
+		inputs_pressed = pressed_now;
+		game_mode_timer = TRACKBALL_TIMER;
+	}
 	note_levels_cleared();
 	wide_how_to_play();
 	debug_sections();
@@ -2847,6 +3202,12 @@ void character_chooser_wait(void)
 	uint32_t kind = OBJECT(current_object)->kind;
 	int16_t trackball_x = 0;
 
+	if (trackball_open)
+	{
+		character_chooser_confirm();    /* (TRACKBALL's game: player 1's first character, Sonic, at once */
+		character_select_timer = 1;     /* and on to the how to play: game_mode_character_select) */
+		return;
+	}
 	if (kind < CHOOSERS)
 	{
 		trackball_x = (int16_t)RAM16(GAME_VARIABLES + chooser_trackball_offsets[kind]);
@@ -2923,8 +3284,8 @@ void console_back(void)
 		close_times();
 		return;
 	}
-	if (controls_open)
-		return;    /* (CONTROLS reads the action back itself) */
+	if (controls_open || trackball_open)
+		return;    /* (CONTROLS and TRACKBALL read the action back themselves) */
 	if (options_open && video_open)
 	{
 		close_video();

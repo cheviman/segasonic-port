@@ -5,7 +5,7 @@ Description: makes the README's screenshots of the console build (docs/screensho
              control script, and one frame of it as the window shows it, at twice the game's size
 Version:     0.1.0
 Created:     21-10-2026
-Modified:    23-10-2026
+Modified:    29-10-2026
 Author:      Sebastian Toyos
 
 Usage: python tools/make_screenshots.py [--check] [NAME ...]
@@ -36,8 +36,10 @@ SCALE = 2
 # The title's menu, opened with start; OPTIONS is its third line
 MENU = ["700 start 4"]
 OPTIONS = MENU + ["740 down", "770 down", "800 accept"]
-# OPTIONS' STAGE SELECT (its eighth line): the island map, the cursor at the opening (Eggman's console)
-STAGE_SELECT = OPTIONS + [f"{840 + 30 * line} down" for line in range(7)] + ["1060 accept"]
+# OPTIONS' STAGE SELECT (its ninth line): the island map, the cursor at the opening (Eggman's console)
+STAGE_SELECT = OPTIONS + [f"{840 + 30 * line} down" for line in range(8)] + ["1060 accept"]
+# OPTIONS' TRACKBALL (its sixth line): the how to play's floor; accept tries the settings, Sonic moves
+TRACKBALL = OPTIONS + [f"{840 + 30 * line} down" for line in range(5)] + ["1000 accept", "1100 accept"]
 # Three players (the console's cabinet has three): players 2 and 3 join at player select (the map's pick at
 # 1330), everyone picks a character, then they roll on
 THREE_PLAYERS = [
@@ -62,6 +64,7 @@ SHOTS = {
                    "three players in Trap Tower (level 4)"),
     "options": (900, OPTIONS, [], "OPTIONS"),
     "stage_select": (1290, STAGE_SELECT + ["1200 right", "1240 up"], [], "STAGE SELECT on the island map"),
+    "trackball": (1150, TRACKBALL, ["1110  roll 1 -10 -10"], "TRACKBALL: Sonic tried on the how to play's floor"),
 }
 
 

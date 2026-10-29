@@ -5,7 +5,7 @@
  *                 format tools/reference/s32ref uses
  *    Version:     0.1.0
  *    Created:     11-10-2026
- *    Modified:    25-10-2026
+ *    Modified:    29-10-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -356,11 +356,13 @@ static bool load_actions(const char *path)
 static bool actions_hold_start, actions_hold_button;    /* player 1's start and button, held by the actions */
 
 /* The frame's actions, as the window port hands them over (ports/sdl2/main.c): start is player 1's start
-   button too outside a game (or with their start prompt up), jump their button */
+   button too outside a game (or with their start prompt up), jump their button, the directions roll their
+   trackball */
 static void apply_actions(uint64_t frame)
 {
 	uint32_t pressed = 0, held = 0;
 	bool start, button;
+	int roll_x, roll_y;
 
 	for (int index = 0; index < action_event_count; index++)
 		if (action_events[index].section)
@@ -387,6 +389,12 @@ static void apply_actions(uint64_t frame)
 		s32_board.input.port_a |= 0x01u;
 	actions_hold_start = start;
 	actions_hold_button = button;
+	/* up, down, left and right roll player 1's trackball, TRACKBALL's KEYS counts a frame (the board's x counts
+	   the other way) */
+	roll_x = ((held & ACTION_BIT(ACTION_LEFT)) != 0u) - ((held & ACTION_BIT(ACTION_RIGHT)) != 0u);
+	roll_y = ((held & ACTION_BIT(ACTION_DOWN)) != 0u) - ((held & ACTION_BIT(ACTION_UP)) != 0u);
+	s32_board.input.trackball_x[0] = (uint16_t)(s32_board.input.trackball_x[0] + roll_x * console_window_settings.key_roll);
+	s32_board.input.trackball_y[0] = (uint16_t)(s32_board.input.trackball_y[0] + roll_y * console_window_settings.key_roll);
 	if (!console_in_game() && (pressed & ACTION_BIT(ACTION_BACK)))
 		console_back();
 	console_actions(pressed, held);

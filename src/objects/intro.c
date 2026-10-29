@@ -293,7 +293,7 @@ void how_to_play_button_hand_start(void)
    next_press's (time, frame) pair it sets that animation_frame and steps it (animate_part_list_step, so
    the part list after it shows), then moves to the next pair; at 0xC8 it opens message box kind 0xC.
    Queued at depth 0xEE. */
-void how_to_play_button_hand_update(void)
+void CONSOLE_ORIGINAL(how_to_play_button_hand_update)(void)
 {
 	uint16_t frames = 0, kind = 0, screen_x = 0, screen_y = 0;
 	uint32_t depth = 0, ignored = 0;
@@ -363,7 +363,7 @@ void how_to_play_trackball_hand_start(void)
    it rubs the ball (step: down-left to 0x20 left of projected_x, 8 frames' rest, back) while the ball
    turns. At timer 0xA it lights up until 0xBE and opens message boxes kinds 0xD and 0xB; from 0x20 the
    scroll runs at speed 0x10. */
-void how_to_play_trackball_hand_update(void)
+void CONSOLE_ORIGINAL(how_to_play_trackball_hand_update)(void)
 {
 	uint8_t last_step = 0;
 	uint16_t child = 0, child_palette = 0, frames = 0, kind = 0, screen_x = 0, screen_y = 0;

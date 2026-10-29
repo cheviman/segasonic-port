@@ -15,3 +15,5 @@ draw_player_start_prompt # a player's start prompt is up: their start joins, it 
 system_mode_idle         # system mode 1 is the console's OPTIONS page
 set_nbg0_scroll_from_camera # WIDE: the tile sets of the blocks from the wide left side on
 place_message_box        # Eggman's lines and the how to play's captions: the game's own English boxes
+how_to_play_button_hand_update # TRACKBALL: the how to play's hand presses the button as player 1 does
+how_to_play_trackball_hand_update # TRACKBALL: its hand rubs the ball as player 1's turns; no captions, no scroll

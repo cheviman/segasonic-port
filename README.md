@@ -17,6 +17,7 @@ executable carries the ROM or anything from it.
   <img src="docs/screenshots/ice_caption.png" width="32%" alt="Eggman's line in English in the ice level: Try to get through this!">
   <img src="docs/screenshots/trap_tower.png" width="32%" alt="Three players in Trap Tower: You'll never escape!">
   <img src="docs/screenshots/options.png" width="32%" alt="The OPTIONS page over the drifting Sonic faces">
+  <img src="docs/screenshots/trackball.png" width="32%" alt="TRACKBALL: Sonic walking on the how to play's floor under the settings">
   <img src="docs/screenshots/stage_select.png" width="32%" alt="STAGE SELECT on the island map, Trap Tower chosen">
 </p>
 <p align="center"><sub>The console version with WIDE on, as its window shows it
@@ -68,8 +69,8 @@ one to share.
   wider; past where the board's camera ever looks, the stage's map goes on as its rows and walls do. The
   scenes, drawn for 4:3, show between bars.
 - **OPTIONS**: DIFFICULTY and VITALITY (the operator's settings), CONTINUES, VIDEO (WINDOW size, FULL
-  SCREEN, PIXELS: sharp, smooth, soft or a CRT's scanlines and mask, WIDE), CONTROLS, VOLUME, SOUND TEST
-  (the song picked becomes the title's music) and STAGE SELECT.
+  SCREEN, PIXELS: sharp, smooth, soft or a CRT's scanlines and mask, WIDE), CONTROLS, TRACKBALL, VOLUME,
+  SOUND TEST (the song picked becomes the title's music) and STAGE SELECT.
 - **TIME ATTACK**: a level, or the whole game from Eggman's place on the map. The clock runs through stages,
   scenes and continues, with a split at the end of each level; BEST TIMES and BEST RUN keep the records.
 - **STAGE SELECT**: the island map with every level open; the levels cleared in this session's games show
@@ -79,6 +80,11 @@ one to share.
 - **Pause**: start (or back) in a stage pauses the game and its scripted scenes.
 - **CONTROLS**: every action's keys and game controller button, for each player, on screen with Kenney's
   Input Prompts.
+- **TRACKBALL** (Windows, macOS and Linux): how far the stick, the keys and the pad's cross and the mouse
+  roll Sonic, on the how to play's floor. Up and down choose a setting, left and right change it, accept
+  tries it: Sonic moves (and jumps) until back. STICK and KEYS go from 0 to 60 trackball counts a frame
+  (30 at first; Sonic is at his fastest from about 36), MOUSE as F5 and F6 change it, ROLLS ON as F4, DRAG
+  and FRICTION how soon a ball the mouse left rolling stops. They are kept in `segasonic.ini`.
 
 ### Controls
 
@@ -98,7 +104,8 @@ pause (Escape) gives the pointer back, and a click takes it again. Alt+F4 or Cmd
 time; the title's menu has EXIT.
 
 The window, in both versions: F11 or Alt+Enter full screen, F3 smooth or sharp pixels, F4 whether the
-mouse's ball rolls on when the mouse stops, F5 and F6 the mouse slower or faster.
+mouse's ball rolls on when the mouse stops, F5 and F6 the mouse slower or faster (in SegaSonic, OPTIONS →
+TRACKBALL shows them, and Sonic moving by them).
 
 ### The arcade version: SegaSonic Arcade
 

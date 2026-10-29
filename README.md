@@ -111,6 +111,12 @@ The window, in both versions: F11 or Alt+Enter full screen, F3 smooth or sharp p
 mouse's ball rolls on when the mouse stops, F5 and F6 the mouse slower or faster (in SegaSonic, OPTIONS →
 TRACKBALL shows them, and Sonic moving by them).
 
+Game controllers, in both versions: the ones SDL knows (Xbox, PlayStation, Switch and many more) work as
+they are. Another one, such as a generic USB pad, needs its mapping in `gamecontrollerdb.txt` where the
+game keeps its files (below): the lines of [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB),
+or the line a gamepad tool makes for it. The game reads the file when it starts. Steam Input also works,
+as Steam shows the game an Xbox controller.
+
 ### The arcade version: SegaSonic Arcade
 
 `SegaSonic Arcade` is the arcade game as the board runs it, matching MAME frame by frame: put a coin in (5), then
@@ -140,6 +146,7 @@ Support/SegaSonic` on macOS:
 | `controls.ini` | the console version's keys and buttons, a section a player |
 | `segasonic.times` | TIME ATTACK's best times and best run |
 | `segasonic.eeprom`, `sonic.eeprom` | each one's game settings and bookkeeping, as the board's EEPROM keeps them |
+| `gamecontrollerdb.txt` | yours to add: the mappings of game controllers SDL does not know (on Linux and macOS it may also go beside the executable) |
 
 ### Nintendo Switch
 

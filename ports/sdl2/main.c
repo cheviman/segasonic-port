@@ -67,6 +67,7 @@
 #define WINDOW_TITLE "SegaSonic Arcade"
 #endif
 #define ASSETS_FILE "segasonic.assets"    /* the game's assets pack (tools/make_pack.py) */
+#define MAPPINGS_FILE "gamecontrollerdb.txt"    /* more game controllers for SDL (SDL_GameControllerDB's) */
 
 #ifdef SEGASONIC_CONSOLE
 static bool pause_requested;
@@ -1378,6 +1379,40 @@ static int fail(const char *what, const char *detail)
 	return 1;
 }
 
+#ifndef SEGASONIC_HANDHELD
+static char *saves_folder(void);
+
+/* gamecontrollerdb.txt, where the game keeps what it writes or else beside the executable: the mappings of
+   the game controllers SDL does not know (a generic pad: without one it is only a joystick, which the game
+   does not take), a line each as SDL_GameControllerDB has them. A hint before SDL starts, as a mapping
+   added after leaves a joystick already there as it was */
+static void add_mappings_file(void)
+{
+	static char path[1024];
+	char *folders[2];
+
+	folders[0] = saves_folder();
+	folders[1] = SDL_GetBasePath();
+	for (int folder = 0; folder < 2; folder++)
+	{
+		SDL_RWops *file = NULL;
+
+		if (!folders[folder])
+			continue;
+		snprintf(path, sizeof(path), "%s" MAPPINGS_FILE, folders[folder]);
+		file = SDL_RWFromFile(path, "rb");
+		if (!file)
+			continue;
+		SDL_RWclose(file);
+		SDL_SetHint(SDL_HINT_GAMECONTROLLERCONFIG_FILE, path);
+		fprintf(stderr, "game controllers: %s\n", path);
+		break;
+	}
+	SDL_free(folders[0]);
+	SDL_free(folders[1]);
+}
+#endif
+
 /* Where the game keeps what it writes (its settings, the EEPROM): beside the executable on Windows, as it
    always was; elsewhere the user's own folder for the game (SDL_GetPrefPath: ~/.local/share/SegaSonic,
    ~/Library/Application Support/SegaSonic), as the executable's may not be written (an .app, /usr/bin).
@@ -1484,9 +1519,14 @@ int main(int argc, char **argv)
 #endif
 #ifdef SEGASONIC_HANDHELD
 	add_device_mappings();
+#else
+	add_mappings_file();
 #endif
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0)
 		return fail("SDL could not start.", SDL_GetError());
+#ifndef SEGASONIC_HANDHELD
+	fprintf(stderr, "game controllers: %d mappings\n", SDL_GameControllerNumMappings());
+#endif
 #ifdef __SWITCH__
 	base = SDL_strdup("romfs:/");
 #else

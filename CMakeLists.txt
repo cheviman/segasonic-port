@@ -247,6 +247,13 @@ if(SONIC_DECOMPILED)
 		add_executable(SegaSonic WIN32 MACOSX_BUNDLE ports/sdl2/main.c ports/sdl2/settings.c ports/sdl2/actions.c
 			ports/sdl2/first_run.c ports/sdl2/letters.c ports/sdl2/mice.c)
 		target_link_libraries(SegaSonic PRIVATE sonic_game_console sonic_data ${SONIC_SDL2})
+		# a development aid: SegaSonic with Android's touch controls, the mouse a finger, to look at them in a
+		# window of any shape (as OutRunners')
+		option(SEGASONIC_TOUCH_TEST "Build SegaSonic with Android's touch controls, the mouse as a finger" OFF)
+		if(SEGASONIC_TOUCH_TEST)
+			target_sources(SegaSonic PRIVATE ports/sdl2/touch.c)
+			target_compile_definitions(SegaSonic PRIVATE SEGASONIC_TOUCH SEGASONIC_TOUCH_TEST)
+		endif()
 		set_target_properties(SegaSonic PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "SegaSonic"
 			MACOSX_BUNDLE_GUI_IDENTIFIER io.github.cheviman.segasonic-port)
 		if(WIN32 AND NOT SEGASONIC_STATIC_SDL2)

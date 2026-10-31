@@ -4,7 +4,7 @@
  *                 the pace, around the same game and board the headless runs check
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    29-10-2026
+ *    Modified:    31-10-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -18,7 +18,7 @@
  *    writes, the pack too, in /switch/segasonic/ on the SD card; the picture is fixed (fix_settings). On
  *    Android (libmain.so in the APK, SEGASONIC_HANDHELD and SEGASONIC_TOUCH) the pack and the letters come
  *    in the APK's assets, what it writes goes to the app's own folder and the touch screen has its
- *    controls (touch.c).
+ *    controls (touch.c), the picture as the screen's shape asks (follow_screen).
  *
  *    The game (src/) and the board (runtime/) run as they are: this file only wraps them. Where the board
  *    has its hooks, the port does its part: when VBLANK starts the video draws the frame and the port puts
@@ -233,6 +233,40 @@ static int picture_width(void)
 	return 320;
 }
 
+#ifdef SEGASONIC_TOUCH
+/* A touch screen's picture, as the screen's shape asks (Android's, whose OPTIONS have no VIDEO; and the touch
+   controls' check on a computer, whose window is the phone's screen): where the game's own picture, 320
+   pixels, goes across it with a fifth of the screen or more left under it (an open Fold's: Sebas), that
+   picture at the top, larger than WIDE's, and the touch controls in the room under it; else WIDE, the
+   controls over the picture. The screen can change its shape mid-game, a Fold opened or closed: the picture
+   is chosen again then, its new width from the next frame */
+#define ROOM_UNDER  0.20    /* the room under the game's picture, in the screen's height, that takes the controls */
+
+static int shape_width, shape_height;    /* the screen the picture was last chosen for */
+
+/* The room under the game's 320-pixel picture across a screen of 'width' x 'height', in pixels, where it
+   takes the touch controls; else 0 */
+static int room_under(int width, int height)
+{
+	const int picture = SDL_min(height, width * S32_VIDEO_HEIGHT / 320);
+
+	return height - picture >= ROOM_UNDER * height ? height - picture : 0;
+}
+
+/* The screen's size at a frame, as the renderer has it: the picture chosen again where it changed (the log
+   says so) */
+static void follow_screen(int width, int height)
+{
+	if (width <= 0 || height <= 0 || (width == shape_width && height == shape_height))
+		return;
+	shape_width = width;
+	shape_height = height;
+	settings.wide = room_under(width, height) == 0;
+	console_window_settings.wide = settings.wide;
+	fprintf(stderr, "screen %dx%d: %s\n", width, height, settings.wide ? "WIDE" : "the game's picture, the controls under it");
+}
+#endif
+
 #ifndef __SWITCH__    /* (the Switch's window is its screen) */
 #define WINDOW_EDGES 64    /* room left on the screen for the window's title bar and borders */
 
@@ -319,11 +353,23 @@ static void present(const uint32_t *pixels, int width)
 		source.w = width = picture_width();
 	}
 	SDL_GetRendererOutputSize(renderer, &out_width, &out_height);
+#ifdef SEGASONIC_TOUCH
+	follow_screen(out_width, out_height);    /* (a Fold opened or closed: its picture, from the next frame) */
+#endif
 	scale = SDL_min((double)out_width / width, (double)out_height / S32_VIDEO_HEIGHT);
 	shown.w = (int)(width * scale);
 	shown.h = (int)(S32_VIDEO_HEIGHT * scale);
 	shown.x = (out_width - shown.w) / 2;
 	shown.y = (out_height - shown.h) / 2;
+#ifdef SEGASONIC_TOUCH
+	{
+		const int room = room_under(out_width, out_height);
+
+		if (room > 0)
+			shown.y = 0;    /* (a tall screen: the picture at the top, the touch controls in the room under it) */
+		touch_layout(out_width, out_height, room);
+	}
+#endif
 	/* plain bilinear: the picture straight to the window, softened all the way */
 	SDL_SetTextureScaleMode(texture, settings.bilinear && !settings.crt ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
 	if (settings.bilinear && !settings.crt)
@@ -712,8 +758,24 @@ static void tell_console_settings(void)
    VIDEO page (console.c) */
 static void fix_settings(void)
 {
-#ifdef SEGASONIC_SCREEN_WIDE
-	settings.wide = true;     /* (a 16:9 screen: the Switch's; a phone's, wider) */
+#if defined(SEGASONIC_SCREEN_WIDE) && defined(SEGASONIC_TOUCH)
+	{
+		/* (a phone's by its screen's shape, room_under, as the screen is now: a Fold's opened or closed; the
+		   renderer's once there is one, before it the display's mode) */
+		SDL_DisplayMode mode;
+		int width = 0, height = 0;
+
+		if (renderer)
+			SDL_GetRendererOutputSize(renderer, &width, &height);
+		else if (SDL_GetCurrentDisplayMode(0, &mode) == 0)
+		{
+			width = mode.w;
+			height = mode.h;
+		}
+		settings.wide = width <= 0 || height <= 0 || room_under(width, height) == 0;
+	}
+#elif defined(SEGASONIC_SCREEN_WIDE)
+	settings.wide = true;     /* (a 16:9 screen: the Switch's) */
 #else
 	settings.wide = false;    /* (a 4:3 one: the game's own picture, twice its size on a handheld's 640 x 480) */
 #endif
@@ -735,6 +797,7 @@ static void apply_settings(void)
 	set_smooth(settings.smooth);
 	if (full != settings.full_screen)
 		SDL_SetWindowFullscreen(window, settings.full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+#ifndef SEGASONIC_TOUCH_TEST    /* (the touch controls' check: the window is a phone's screen, the shape it is given) */
 	if (settings.window_scale != shown_scale || picture_width() != shown_width)
 	{
 		shown_scale = settings.window_scale;
@@ -742,6 +805,7 @@ static void apply_settings(void)
 		SDL_SetWindowSize(window, (int)(picture_width() * window_scale_that_fits()),
 			(int)(S32_VIDEO_HEIGHT * window_scale_that_fits()));
 	}
+#endif
 #endif
 	show_mouse_speed();
 #ifdef SEGASONIC_CONSOLE
@@ -1579,6 +1643,9 @@ int main(int argc, char **argv)
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");          /* (fingers are the touch controls, not the mouse) */
 	SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
 	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
+#ifdef SEGASONIC_TOUCH_TEST
+	SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "1");    /* (a computer's check of the touch controls: the mouse a finger) */
 #endif
 #ifdef SEGASONIC_HANDHELD
 	add_device_mappings();

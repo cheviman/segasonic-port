@@ -8,7 +8,7 @@
 #              release of those packages
 # Version:     0.6.0
 # Created:     20-10-2026
-# Modified:    25-10-2026
+# Modified:    31-10-2026
 # Author:      Sebastian Toyos
 name: build
 
@@ -26,7 +26,7 @@ jobs:
           - name: linux-x64
             os: ubuntu-24.04
           - name: macos-universal
-            os: macos-14
+            os: macos-15    # (GitHub retires macos-14 on 2 November 2026; the .app is still for macOS 11 on)
           - name: windows-x64
             os: windows-2022
     name: ${{ matrix.name }}

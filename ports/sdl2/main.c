@@ -334,6 +334,53 @@ static void make_crt_overlay(int width, int height)
 	SDL_SetTextureBlendMode(crt_overlay, SDL_BLENDMODE_MOD);
 }
 
+#ifdef SEGASONIC_CONSOLE
+/* ---- where the picture is not: OPTIONS' Sonic heads held still (console_backdrop) ---- */
+
+static SDL_Texture *backdrop;
+
+static void open_backdrop(void)
+{
+	static uint32_t pixels[CONSOLE_BACKDROP_WIDTH * CONSOLE_BACKDROP_HEIGHT];
+
+	console_backdrop(pixels);
+	backdrop = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC,
+		CONSOLE_BACKDROP_WIDTH, CONSOLE_BACKDROP_HEIGHT);
+	if (!backdrop)
+		return;
+	SDL_UpdateTexture(backdrop, NULL, pixels, CONSOLE_BACKDROP_WIDTH * (int)sizeof(uint32_t));
+	SDL_SetTextureScaleMode(backdrop, SDL_ScaleModeNearest);
+}
+#endif
+
+/* The screen before the picture goes on it ('shown', 'scale' times the game's pixels): black, or in the
+   console build the heads at the picture's scale, their page repeated from the picture's corner over the
+   whole screen */
+static void clear_screen(const SDL_Rect *shown, double scale, int out_width, int out_height)
+{
+	SDL_RenderClear(renderer);
+#ifdef SEGASONIC_CONSOLE
+	if (backdrop)
+	{
+		const double page_width = CONSOLE_BACKDROP_WIDTH * scale, page_height = CONSOLE_BACKDROP_HEIGHT * scale;
+		const double first_x = shown->x - ceil(shown->x / page_width) * page_width;
+		const double first_y = shown->y - ceil(shown->y / page_height) * page_height;
+
+		/* (each page from its edges rounded, so the next one starts where it ends) */
+		for (double y = first_y; y < out_height; y += page_height)
+			for (double x = first_x; x < out_width; x += page_width)
+			{
+				const SDL_Rect page = { (int)lround(x), (int)lround(y), (int)(lround(x + page_width) - lround(x)),
+					(int)(lround(y + page_height) - lround(y)) };
+
+				SDL_RenderCopy(renderer, backdrop, NULL, &page);
+			}
+	}
+#else
+	(void)shown, (void)scale, (void)out_width, (void)out_height;
+#endif
+}
+
 #ifdef SEGASONIC_PAUSE_EXIT
 static SDL_Rect picture_shown;    /* where the last frame was on the screen */
 #endif
@@ -374,7 +421,7 @@ static void present(const uint32_t *pixels, int width)
 	SDL_SetTextureScaleMode(texture, settings.bilinear && !settings.crt ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
 	if (settings.bilinear && !settings.crt)
 	{
-		SDL_RenderClear(renderer);
+		clear_screen(&shown, scale, out_width, out_height);
 		SDL_RenderCopy(renderer, texture, &source, &shown);
 	}
 	else if (settings.smooth || settings.crt)
@@ -395,7 +442,7 @@ static void present(const uint32_t *pixels, int width)
 		SDL_SetRenderTarget(renderer, scaled);
 		SDL_RenderCopy(renderer, texture, &source, &whole);
 		SDL_SetRenderTarget(renderer, NULL);
-		SDL_RenderClear(renderer);
+		clear_screen(&shown, scale, out_width, out_height);
 		SDL_RenderCopy(renderer, scaled, &whole, &shown);
 		if (settings.crt)
 		{
@@ -406,7 +453,7 @@ static void present(const uint32_t *pixels, int width)
 	}
 	else
 	{
-		SDL_RenderClear(renderer);
+		clear_screen(&shown, scale, out_width, out_height);
 		SDL_RenderCopy(renderer, texture, &source, &shown);
 	}
 #ifdef SEGASONIC_TOUCH
@@ -1803,6 +1850,9 @@ int main(int argc, char **argv)
 	sound_chips_attach();
 	sound_cpu_attach();
 	s32_init(game_program);
+#ifdef SEGASONIC_CONSOLE
+	open_backdrop();    /* (from the program ROM and the tiles) */
+#endif
 	load_eeprom();
 	program_reset();
 	program_frame_done = on_frame_done;

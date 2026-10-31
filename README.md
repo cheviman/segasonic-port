@@ -68,6 +68,8 @@ one to share.
 - **WIDE** (OPTIONS → VIDEO): a 16:9 picture. The stages, the title, the ranking and player select are drawn
   wider; past where the board's camera ever looks, the stage's map goes on as its rows and walls do. The
   scenes, drawn for 4:3, show between bars.
+- **Around the picture**, where it leaves the screen (full screen, the scenes between bars, the room under it
+  on an open foldable): OPTIONS' Sonic heads standing still, not black.
 - **OPTIONS**: DIFFICULTY and VITALITY (the operator's settings), CONTINUES, VIDEO (WINDOW size, FULL
   SCREEN, PIXELS: sharp, smooth, soft or a CRT's scanlines and mask, WIDE), CONTROLS, TRACKBALL, VOLUME,
   SOUND TEST (the song picked becomes the title's music) and STAGE SELECT.
@@ -196,7 +198,8 @@ on Windows, `~/.config/SegaSonic` on Linux, `~/Library/Application Support/SegaS
 Android installs a new APK over the last one, keeping your settings and records, only when both have the same
 key.
 
-On the phone the picture is 16:9. The touch screen has its controls: a stick where your left thumb lands, A to
+On the phone the picture is 16:9; on an open foldable, the game's own 4:3 picture at the top, larger, with the
+touch controls under it. The touch screen has its controls: a stick where your left thumb lands, A to
 jump and pick, START to start and pause; a Bluetooth or USB game controller works too (the d-pad or the left
 stick, A, B back in the menus, Start), and the touch controls hide while it is used. Android's back goes back
 in the menus. The pause has CONTINUE and EXIT. More in [ports/android/README.md](ports/android/README.md).

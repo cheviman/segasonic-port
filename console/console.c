@@ -4,7 +4,7 @@
  *                 sound, no coins, PRESS START on the title and a menu over it
  *    Version:     0.1.0
  *    Created:     19-10-2026
- *    Modified:    29-10-2026
+ *    Modified:    31-10-2026
  *    Author:      Sebastian Toyos
  *
  *    The game's C (src/) stays as the decompilation wrote it. A function listed in console/replaced.txt is
@@ -852,6 +852,79 @@ void system_mode_idle(void)
 		run_times();
 	else
 		run_options();
+}
+
+/* ---- OPTIONS' backdrop held still: the port's screen where the picture is not ---- */
+
+#define BACKDROP_BANK     1u        /* the tiles' bank while the faces show */
+#define BACKDROP_COLUMNS  32u       /* a tilemap page: 32 x 16 cells */
+#define BACKDROP_CELLS    0x200u
+
+/* The faces' page: sonic_head_pattern_script as run_vram_script runs it, into 'cells' in place of video RAM's
+   page; the commands it has are these three, up to its end */
+static void backdrop_cells(uint16_t *cells)
+{
+	uint32_t script = sonic_head_pattern_script_ADDRESS;
+	uint32_t cell = 0, count = 0;
+	uint16_t tile = 0;
+
+	for (;;)
+	{
+		const uint8_t code = VRAM_SCRIPT(script)[0];
+
+		script++;
+		if (code == 0x98u)    /* clear_pages: the write position at the page, its cells 0 */
+		{
+			cell = VRAM_SCRIPT_PAGE_CLEAR(script)->cell & (BACKDROP_CELLS - 1u);
+			memset(cells, 0, BACKDROP_CELLS * sizeof(cells[0]));
+			script += 3u;
+		}
+		else if (code == 0x80u)    /* address */
+		{
+			cell = VRAM_SCRIPT_ADDRESS(script)->cell & (BACKDROP_CELLS - 1u);
+			script += 2u;
+		}
+		else if (code == 0x89u)    /* count_up: count cells of tile, tile + 1 and so on */
+		{
+			count = VRAM_SCRIPT_CELL_RUN(script)->count;
+			tile = VRAM_SCRIPT_CELL_RUN(script)->cell;
+			script += 3u;
+			for (; count != 0u && cell < BACKDROP_CELLS; count--)
+				cells[cell++] = tile++;
+		}
+		else    /* end */
+			return;
+	}
+}
+
+void console_backdrop(uint32_t *pixels)
+{
+	uint16_t cells[BACKDROP_CELLS];
+	uint32_t colors[16];
+	uint32_t x, y;
+	int pen;
+
+	backdrop_cells(cells);
+	/* (the faces' cells all show the one palette; its colours in the alternate format, as palette RAM's from
+	   608000 holds them: the low bit of blue, green and red in bits 14-12, the rest 4:4:4) */
+	for (pen = 0; pen < 16; pen++)
+	{
+		const uint16_t value = ROM16(nbg0_picture_palette_ADDRESS + 2u * (uint32_t)pen);
+		const uint32_t red = ((value >> 12) & 1u) | ((value << 1) & 0x1Eu);
+		const uint32_t green = ((value >> 13) & 1u) | ((value >> 3) & 0x1Eu);
+		const uint32_t blue = ((value >> 14) & 1u) | ((value >> 7) & 0x1Eu);
+
+		colors[pen] = pen == 0 ? 0u : red << 19 | green << 11 | blue << 3;
+	}
+	for (y = 0; y < CONSOLE_BACKDROP_HEIGHT; y++)
+		for (x = 0; x < CONSOLE_BACKDROP_WIDTH; x++)
+		{
+			const uint16_t cell = cells[(y >> 4) * BACKDROP_COLUMNS + (x >> 4)];
+			const int column = (cell & 0x4000u) ? 15 - (int)(x & 15u) : (int)(x & 15u);
+			const int line = (cell & 0x8000u) ? 15 - (int)(y & 15u) : (int)(y & 15u);
+
+			pixels[y * CONSOLE_BACKDROP_WIDTH + x] = colors[s32_video_tile_pen(BACKDROP_BANK << 13 | (cell & 0x1FFFu), column, line)];
+		}
 }
 
 /* ---- CONTROLS: the actions, their keys and buttons (the port draws them, Kenney's Input Prompts) ---- */

@@ -4,7 +4,7 @@
  *                 buffers and the mixer, drawing each frame from the board's memories
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    19-10-2026
+ *    Modified:    31-10-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -1402,6 +1402,11 @@ bool s32_video_cell_blank(uint16_t cell)
 		blank_tiles[tile] = index == 128 ? 1 : 2;
 	}
 	return blank_tiles[tile] == 1;
+}
+
+int s32_video_tile_pen(uint32_t tile, int x, int y)
+{
+	return tile_pen(tile, x & 15, y & 15);
 }
 
 void s32_video_set_cells(const uint16_t *words, const uint8_t *marks)

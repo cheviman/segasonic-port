@@ -3,12 +3,15 @@
 The console version of the game (`SegaSonic`) built for Android phones and tablets (Android 7 or later), as an
 APK. It is the same game as on a computer, with what a phone asks for:
 
-- **The picture is WIDE, fixed**: a phone's screen is 16:9 or wider, and the game's 16:9 picture fills its
-  height. OPTIONS has no VIDEO page.
-- **Touch controls**, drawn over the picture (`ports/sdl2/touch.c`): a stick where your left thumb lands on
-  the screen's left half (it rolls the trackball as far as it leans, and moves the menus' cursor), **A**
-  (jump, pick) and **START** (start, pause). They hide when a game controller or a keyboard is used, and come
-  back when a finger touches the screen.
+- **The picture as the screen's shape asks**: a phone's screen is 16:9 or wider, and the game's 16:9 picture
+  (WIDE) fills its height. On a screen tall enough for the game's own 4:3 picture with a fifth of it left
+  under it (an open Galaxy Z Fold's), that picture goes at the top and the touch controls under it; a fold
+  opened or closed mid-game changes it at once. Where the picture leaves the screen, OPTIONS' Sonic heads
+  stand still. OPTIONS has no VIDEO page.
+- **Touch controls**, over the picture or under it (`ports/sdl2/touch.c`): a stick where your left thumb lands
+  on the screen's left half (it rolls the trackball as far as it leans, and moves the menus' cursor), **A**
+  (jump, pick) and **START** (start, pause), the same size on every phone. They hide when a game controller
+  or a keyboard is used, and come back when a finger touches the screen.
 - **Game controllers**, Bluetooth or USB: the d-pad and the left stick move, A jumps and picks, B goes back in
   the menus (it does nothing in a stage), Start starts and pauses. OPTIONS has no CONTROLS page.
 - **Android's back** (the button or the gesture) goes back in the menus and does nothing in a stage, so a

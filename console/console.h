@@ -3,7 +3,7 @@
  *    Description: what the console build tells the port
  *    Version:     0.1.0
  *    Created:     19-10-2026
- *    Modified:    29-10-2026
+ *    Modified:    31-10-2026
  *    Author:      Sebastian Toyos
  */
 #ifndef SEGASONIC_CONSOLE_H
@@ -94,6 +94,15 @@ void console_draw_frame(void);
    there */
 #define CONSOLE_ICON_SIZE 64
 bool console_window_icon(uint32_t *pixels, const uint8_t *sprites, size_t size, const uint8_t *program);
+
+/* OPTIONS' backdrop held still, for the port's screen where the picture is not: the page of Sonic heads the
+   ranking and OPTIONS show (sonic_head_pattern_script, 32 x 16 cells of 16 x 16 pixels) in their colours
+   (nbg0_picture_palette), CONSOLE_BACKDROP_WIDTH x CONSOLE_BACKDROP_HEIGHT pixels 0x00RRGGBB as the video's
+   frames, pen 0 black; the page repeats across and down. After s32_init and s32_video_init (the program
+   ROM and the tiles) */
+#define CONSOLE_BACKDROP_WIDTH  512
+#define CONSOLE_BACKDROP_HEIGHT 256
+void console_backdrop(uint32_t *pixels);
 
 /* TIME ATTACK's best times, in the board's frames (0: none yet), by the map's levels (the opening, then its 7
    markers'): each level played alone (the opening is never alone: Eggman on the map is the whole game),

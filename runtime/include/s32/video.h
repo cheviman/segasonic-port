@@ -3,7 +3,7 @@
  *    Description: Sega System 32 video: draws each frame of the board from its memories, as the hardware does
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    19-10-2026
+ *    Modified:    31-10-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -46,6 +46,9 @@ int s32_video_side(void);
 /* A tilemap cell (as the pages hold it: tile number, color, flips) draws nothing: its tile, in the bank
    the tilemaps use now, has no pen but 0 */
 bool s32_video_cell_blank(uint16_t cell);
+
+/* The pen (0-15) of pixel 'x', 'y' (0-15) of a tile (bank << 13 | number), as the tilemaps draw it */
+int s32_video_tile_pen(uint32_t tile, int x, int y);
 
 /* A port's own tilemap cells, drawn in place of video RAM's: by video RAM word (page << 9 | cell), the
    cells whose mark is not 0 take their word from 'words'; NULL, none (the arcade's) */

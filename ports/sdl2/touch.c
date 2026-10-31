@@ -48,7 +48,8 @@ enum { BUTTON_A, BUTTON_START, BUTTONS };
 
 /* Where the controls are, in the unit: over the picture on a phone's whole screen (their room at its sides
    and corners), or filling the room under it on a tall screen (the stick as large as it lets it). A is as
-   large as a thumb needs and no larger, as OutRunners' GAS (Sebas: it was enormous) */
+   large as a thumb needs and no larger, as OutRunners' GAS (Sebas: it was enormous); the stick a fifth
+   larger than it first was (Sebas) */
 typedef struct
 {
 	double stick_x, stick_y;     /* the stick's place while it waits: from the left and the bottom */
@@ -58,7 +59,7 @@ typedef struct
 } layout;
 
 static const layout over_picture = {
-	0.25, 0.27, 0.15, 0.07,
+	0.25, 0.27, 0.18, 0.084,
 	{
 		[BUTTON_A] = { false, 0.17, 0.22, 0.20, 0.20, ACTION_BIT(ACTION_JUMP) | ACTION_BIT(ACTION_ACCEPT), "A" },
 		[BUTTON_START] = { true, 0.17, 0.09, 0.24, 0.09, ACTION_BIT(ACTION_START), "START" },
@@ -66,7 +67,7 @@ static const layout over_picture = {
 };
 
 static const layout under_picture = {
-	0.45, 0.50, 0.36, 0.15,
+	0.50, 0.50, 0.432, 0.18,
 	{
 		[BUTTON_A] = { false, 0.28, 0.40, 0.42, 0.42, ACTION_BIT(ACTION_JUMP) | ACTION_BIT(ACTION_ACCEPT), "A" },
 		[BUTTON_START] = { true, 0.30, 0.10, 0.40, 0.14, ACTION_BIT(ACTION_START), "START" },

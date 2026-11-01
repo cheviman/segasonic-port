@@ -4,7 +4,7 @@
  *                 sound, no coins, PRESS START on the title and a menu over it
  *    Version:     0.1.0
  *    Created:     19-10-2026
- *    Modified:    31-10-2026
+ *    Modified:    01-11-2026
  *    Author:      Sebastian Toyos
  *
  *    The game's C (src/) stays as the decompilation wrote it. A function listed in console/replaced.txt is
@@ -3344,6 +3344,12 @@ void run_test_mode(uint32_t pressed, uint16_t count, uint32_t *p_color, uint32_t
 
 	if (in_menu && (actions & ACTION_BIT(ACTION_UP)) != 0u)
 	{
+		const int8_t blink = test_cursor_blink;
+
+		/* (the arrow off its line before the cursor leaves it, as service has it: test_menu erases it where
+		   the cursor is, by then the new line; the blink's count as it was) */
+		erase_test_cursor(test_menu_cursor_positions_ADDRESS);
+		test_cursor_blink = blink;
 		test_cursor = (uint8_t)(test_cursor == 0u ? TEST_MENU_LAST : test_cursor - 1u);
 		if (mem_read8(moving_seat_dip) == 0u && test_cursor == TEST_MENU_SEAT)
 			test_cursor--;

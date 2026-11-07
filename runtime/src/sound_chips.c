@@ -4,7 +4,7 @@
  *                 frame by frame
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    13-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -272,6 +272,10 @@ void sound_chips_attach(void)
 
 		memset(&host->chip, 0, sizeof(host->chip));
 		host->number = number;
+		host->samples = 0;    /* (a board set up again: its time from 0, as at power-on; a LAN game's start) */
+		host->busy_until = 0;
+		host->buffer.count = 0;
+		host->buffer.first = 0;
 		host->deadline[0] = host->deadline[1] = NO_TIMER;
 		host->chip.host = host;
 		host->chip.set_timer = fm_set_timer;
@@ -280,6 +284,12 @@ void sound_chips_attach(void)
 		host->chip.is_busy = fm_is_busy;
 		s32_fm_init(&host->chip);
 	}
+	sound.pcm_samples = 0;
+	sound.pcm_buffer.count = 0;
+	sound.pcm_buffer.first = 0;
+	sound.override = NO_TIMER;
+	for (int chip = 0; chip < 3; chip++)
+		sound.frame_counts[chip] = 0;
 	s32_pcm_reset(&sound.pcm, s32_board.pcm_ram);
 	s32_board.chips.fm_read = fm_read;
 	s32_board.chips.fm_write = fm_write;

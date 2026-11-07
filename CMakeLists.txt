@@ -2,10 +2,10 @@
 # Description: build of the SegaSonic runtime and its development tools
 # Version:     0.1.0
 # Created:     11-10-2026
-# Modified:    25-10-2026
+# Modified:    07-11-2026
 # Author:      Sebastian Toyos
 cmake_minimum_required(VERSION 3.20)
-project(segasonic C CXX)
+project(segasonic VERSION 1.4.0 LANGUAGES C CXX)    # (the port's release: OPTIONS shows it, the executables carry it)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -17,6 +17,23 @@ set(SONIC_BIN_DIR ${CMAKE_SOURCE_DIR}/build/bin CACHE PATH "Where the executable
 foreach(config IN ITEMS "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY${config} ${SONIC_BIN_DIR})
 endforeach()
+
+# A Windows executable's resources (ports/sdl2/icon/version.rc.in, written for each one): the games' icon and
+# the version information Windows shows in the file's Properties, with the file's name and what it is
+function(segasonic_windows_resource target file_name description with_icon)
+	if(NOT WIN32)
+		return()
+	endif()
+	set(SEGASONIC_RC_FILE "${file_name}")
+	set(SEGASONIC_RC_DESCRIPTION "${description}")
+	if(with_icon)
+		set(SEGASONIC_RC_ICON "1 ICON \"${CMAKE_SOURCE_DIR}/ports/sdl2/icon/segasonic.ico\"")
+	else()
+		set(SEGASONIC_RC_ICON "")
+	endif()
+	configure_file(${CMAKE_SOURCE_DIR}/ports/sdl2/icon/version.rc.in ${CMAKE_BINARY_DIR}/resources/${target}.rc @ONLY)
+	target_sources(${target} PRIVATE ${CMAKE_BINARY_DIR}/resources/${target}.rc)
+endfunction()
 
 if(MSVC)
 	add_compile_options(/W3 /utf-8)
@@ -96,6 +113,7 @@ if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT 
 		ports/switch/nsp/crypto.c)
 	target_link_libraries(segasonic_nsp PRIVATE sonic_data)
 	set_target_properties(segasonic_nsp PROPERTIES OUTPUT_NAME "SegaSonic NSP")
+	segasonic_windows_resource(segasonic_nsp "SegaSonic NSP.exe" "SegaSonic NSP: the Nintendo Switch's .nsp of SegaSonic" OFF)
 endif()
 
 # Android's APK, made on the player's computer (ports/android/apk): the game's Android build
@@ -111,6 +129,7 @@ if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT 
 		target_link_libraries(segasonic_apk_maker PRIVATE bcrypt)    # (BCryptGenRandom: the key)
 	endif()
 	set_target_properties(segasonic_apk_maker PROPERTIES OUTPUT_NAME "SegaSonic APK")
+	segasonic_windows_resource(segasonic_apk_maker "SegaSonic APK.exe" "SegaSonic APK: Android's APK of SegaSonic" OFF)
 endif()
 
 # The translation scaffold the decompiler grew from: the V60 runtime plus the C tools/recompile.py writes
@@ -164,14 +183,50 @@ if(SONIC_DECOMPILED)
 		${SONIC_CONSOLE_SOURCES})
 	target_include_directories(sonic_game_console PUBLIC runtime/include ${SONIC_DECOMPILED_DIR}
 		${SONIC_DECOMPILED_DIR}/sound console)
-	target_compile_definitions(sonic_game_console PUBLIC SEGASONIC_CONSOLE)
+	target_compile_definitions(sonic_game_console PUBLIC SEGASONIC_CONSOLE SEGASONIC_VERSION="${PROJECT_VERSION}")
 	target_link_libraries(sonic_game_console PUBLIC s32runtime)
+	# MULTIPLAYER, the LAN game (console/lan.c): arcade-lan, a repository of its own (the submodule lan/, or
+	# ARCADE_LAN_DIR where it is), as TMNT's: without it the menu's MULTIPLAYER says NO NETWORK
+	set(ARCADE_LAN_DIR ${CMAKE_SOURCE_DIR}/lan CACHE PATH "arcade-lan's sources, for SegaSonic's LAN game")
+	if(EXISTS ${ARCADE_LAN_DIR}/CMakeLists.txt)
+		add_subdirectory(${ARCADE_LAN_DIR} ${CMAKE_BINARY_DIR}/arcade_lan)
+		target_link_libraries(sonic_game_console PUBLIC arcade_lan)
+		target_compile_definitions(sonic_game_console PUBLIC SEGASONIC_LAN)
+	endif()
 	add_executable(segasonic_console_headless ports/headless/main.c)
 	target_link_libraries(segasonic_console_headless PRIVATE sonic_game_console sonic_data)
 	if(MSVC)
 		target_compile_options(sonic_game_console PRIVATE /bigobj)
 	else()
 		target_compile_options(sonic_game_console PRIVATE -fno-strict-aliasing)
+	endif()
+
+	# SDL_GameControllerDB (ports/sdl2/controllerdb, zlib License): the community's mappings of game controllers,
+	# this platform's lines built into the games on the computers and Android (TMNT's players' report: an Nvidia
+	# Shield's PS4 and Xbox controllers); the Switch and the Anbernic keep their own controls. main.c gives SDL
+	# the mappings before it starts (SEGASONIC_CONTROLLER_DB, to whatever links it)
+	if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT SEGASONIC_ANBERNIC)
+		if(ANDROID)
+			set(SEGASONIC_CONTROLLER_PLATFORM "Android")
+		elseif(APPLE)
+			set(SEGASONIC_CONTROLLER_PLATFORM "Mac OS X")
+		elseif(WIN32)
+			set(SEGASONIC_CONTROLLER_PLATFORM "Windows")
+		else()
+			set(SEGASONIC_CONTROLLER_PLATFORM "Linux")
+		endif()
+		set(SEGASONIC_CONTROLLER_DB_C ${CMAKE_BINARY_DIR}/controller_db.c)
+		add_custom_command(OUTPUT ${SEGASONIC_CONTROLLER_DB_C}
+			COMMAND ${CMAKE_COMMAND} -DDB=${CMAKE_SOURCE_DIR}/ports/sdl2/controllerdb/gamecontrollerdb.txt
+				"-DPLATFORM=${SEGASONIC_CONTROLLER_PLATFORM}" -DOUT=${SEGASONIC_CONTROLLER_DB_C}
+				-P ${CMAKE_SOURCE_DIR}/ports/sdl2/controllerdb/embed.cmake
+			DEPENDS ${CMAKE_SOURCE_DIR}/ports/sdl2/controllerdb/gamecontrollerdb.txt
+				${CMAKE_SOURCE_DIR}/ports/sdl2/controllerdb/embed.cmake
+			COMMENT "SDL_GameControllerDB's mappings for ${SEGASONIC_CONTROLLER_PLATFORM}"
+			VERBATIM)
+		add_library(segasonic_controller_db STATIC ${SEGASONIC_CONTROLLER_DB_C})
+		set_target_properties(segasonic_controller_db PROPERTIES POSITION_INDEPENDENT_CODE ON)
+		target_compile_definitions(segasonic_controller_db INTERFACE SEGASONIC_CONTROLLER_DB)
 	endif()
 
 	# The Nintendo Switch (devkitPro's toolchain): the console game alone, its .nro and its .nsp's pieces
@@ -226,7 +281,7 @@ if(SONIC_DECOMPILED)
 		# (an .app on macOS: SDL_GetBasePath is its Resources folder)
 		add_executable(sonic WIN32 MACOSX_BUNDLE ports/sdl2/main.c ports/sdl2/settings.c ports/sdl2/first_run.c
 			ports/sdl2/letters.c ports/sdl2/mice.c)
-		target_link_libraries(sonic PRIVATE sonic_game sonic_data ${SONIC_SDL2})
+		target_link_libraries(sonic PRIVATE sonic_game sonic_data segasonic_controller_db ${SONIC_SDL2})
 		# (the arcade game beside the console one: "SegaSonic Arcade" its executable, .app and window)
 		set_target_properties(sonic PROPERTIES OUTPUT_NAME "SegaSonic Arcade" MACOSX_BUNDLE_BUNDLE_NAME "SegaSonic Arcade"
 			MACOSX_BUNDLE_GUI_IDENTIFIER io.github.cheviman.segasonic-port.arcade)
@@ -246,7 +301,7 @@ if(SONIC_DECOMPILED)
 		endif()
 		add_executable(SegaSonic WIN32 MACOSX_BUNDLE ports/sdl2/main.c ports/sdl2/settings.c ports/sdl2/actions.c
 			ports/sdl2/first_run.c ports/sdl2/letters.c ports/sdl2/mice.c)
-		target_link_libraries(SegaSonic PRIVATE sonic_game_console sonic_data ${SONIC_SDL2})
+		target_link_libraries(SegaSonic PRIVATE sonic_game_console sonic_data segasonic_controller_db ${SONIC_SDL2})
 		# a development aid: SegaSonic with Android's touch controls, the mouse a finger, to look at them in a
 		# window of any shape (as OutRunners')
 		option(SEGASONIC_TOUCH_TEST "Build SegaSonic with Android's touch controls, the mouse as a finger" OFF)
@@ -272,15 +327,16 @@ if(SONIC_DECOMPILED)
 				COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl2/font/font.bmp
 					$<TARGET_FILE_DIR:SegaSonic>)
 		endif()
-		# the executables' icon (tools/make_icon.py): a resource on Windows, the .app's on macOS, a picture
-		# beside them on Linux (for a launcher of the desktop's)
+		# the executables' icon (tools/make_icon.py): a resource on Windows, with the version information
+		# (segasonic_windows_resource), the .app's on macOS, a picture beside them on Linux (for a launcher of
+		# the desktop's)
+		segasonic_windows_resource(sonic "SegaSonic Arcade.exe" "SegaSonic Arcade: the arcade game" ON)
+		segasonic_windows_resource(SegaSonic "SegaSonic.exe" "SegaSonic The Hedgehog" ON)
 		foreach(game sonic SegaSonic)
-			if(WIN32)
-				target_sources(${game} PRIVATE ports/sdl2/icon/segasonic.rc)
-			elseif(APPLE)
+			if(APPLE)
 				target_sources(${game} PRIVATE ports/sdl2/icon/segasonic.icns)
 				set_target_properties(${game} PROPERTIES MACOSX_BUNDLE_ICON_FILE segasonic.icns)
-			else()
+			elseif(NOT WIN32)
 				add_custom_command(TARGET ${game} POST_BUILD
 					COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl2/icon/segasonic.png
 						$<TARGET_FILE_DIR:${game}>)

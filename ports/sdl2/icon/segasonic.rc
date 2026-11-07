@@ -1,3 +1,0 @@
-// the executables' icon (tools/make_icon.py): the first one, which Explorer shows and SDL gives a window
-// that sets none of its own
-1 ICON "segasonic.ico"

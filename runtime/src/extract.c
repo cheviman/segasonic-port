@@ -3,7 +3,7 @@
  *    Description: the first run: the player's ROM set into the game's assets pack (game/extract.h)
  *    Version:     0.1.0
  *    Created:     20-10-2026
- *    Modified:    20-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -19,8 +19,6 @@
 #include <string.h>
 
 #define PACK_VERSION   1u
-
-static uint8_t *const regions[4] = { game_program, game_tiles, game_sprites, game_sound };
 
 static int put16(FILE *output, uint32_t value)
 {
@@ -56,7 +54,7 @@ const char *game_data_extract(const char *source, const char *pack)
 			&& put32(output, piece->offset) && put32(output, piece->size)
 			&& fwrite(piece->name, 1, name, output) == name
 			&& (piece->kind == 1 ? fputc(piece->fill, output) != EOF
-				: fwrite(regions[piece->region] + piece->offset, 1, piece->size, output) == piece->size);
+				: fwrite(game_data_region(piece->region) + piece->offset, 1, piece->size, output) == piece->size);
 	}
 	if (fclose(output) != 0 || !written)
 	{

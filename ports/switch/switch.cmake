@@ -3,7 +3,7 @@
 #              .nsp (the NSO, main.npdm, the NACP and the icon) and, where the assets pack is, as SegaSonic.nro
 # Version:     0.1.0
 # Created:     23-10-2026
-# Modified:    25-10-2026
+# Modified:    07-11-2026
 # Author:      Sebastian Toyos
 #
 # Included by CMakeLists.txt when the toolchain is the Switch's (aarch64-none-elf-cmake). The game is the same
@@ -36,7 +36,7 @@ find_program(SONIC_NPDMTOOL npdmtool HINTS ${SONIC_SWITCH_TOOLS} REQUIRED)
 find_program(SONIC_ELF2NRO elf2nro HINTS ${SONIC_SWITCH_TOOLS} REQUIRED)
 
 set(SONIC_SWITCH_TITLE_ID 05005e6a50510000)    # (homebrew's range; the .nsp's title; nacptool takes it with no 0x)
-set(SONIC_SWITCH_VERSION 1.3.1)
+set(SONIC_SWITCH_VERSION ${PROJECT_VERSION})    # (CMakeLists.txt's project version, the port's release)
 set(SONIC_SWITCH_OUT ${SONIC_BIN_DIR}/switch)
 set(SONIC_SWITCH_ICON ${CMAKE_SOURCE_DIR}/ports/switch/icon.jpg)
 

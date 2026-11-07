@@ -5,7 +5,7 @@
  *                 format tools/reference/s32ref uses
  *    Version:     0.1.0
  *    Created:     11-10-2026
- *    Modified:    29-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -45,6 +45,12 @@
 
 #include <inttypes.h>
 #include <setjmp.h>
+#include <time.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>    /* (Sleep: --pace) */
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,7 +70,14 @@
 
 static jmp_buf finished;
 static uint64_t frames_wanted = 600;
+/* The frames run, a LAN game's resets (the board's and the program's frames from 0 again) counted in: the actions',
+   the dumps', the hashes' and --frames' (the same as the program's where nothing resets the board) */
+static uint64_t frames_before_reset, vblanks_before_reset;
+#define FRAMES_RUN   (frames_before_reset + program_frames())
+#define VBLANKS_RUN  (vblanks_before_reset + s32_board.frame)
+static bool pace;          /* --pace: 60 frames a second, as a window's (a LAN game's rooms are found in seconds) */
 static bool wide_video;    /* --wide: the video's wide picture (s32_video_set_wide) */
+static bool lan_sound;     /* --lan-name or --lan-hashes: the sound board runs, as the window port's always does */
 static FILE *hashes;
 static s32_script *script;
 static uint64_t dump_frame = UINT64_MAX;
@@ -258,38 +271,92 @@ static void write_levels(void)
 				clipped++;
 		}
 	}
-	fprintf(sound_levels, "%" PRIu64 " %d %d %d %.0f %u %u\n", program_frames() - 1, peaks[0], peaks[1], peaks[2],
+	fprintf(sound_levels, "%" PRIu64 " %d %d %d %.0f %u %u\n", FRAMES_RUN - 1, peaks[0], peaks[1], peaks[2],
 		mix_peak, clipped, pcm_limit);
 }
+
+static void sleep_ms(int milliseconds)
+{
+#ifdef _WIN32
+	Sleep((unsigned long)milliseconds);
+#else
+	const struct timespec wait = { 0, (long)milliseconds * 1000000L };
+
+	nanosleep(&wait, NULL);
+#endif
+}
+
+/* (the system's steady clock: Android's bionic has no timespec_get before API 29) */
+static double seconds_now(void)
+{
+#ifdef _WIN32
+	LARGE_INTEGER now, frequency;
+
+	QueryPerformanceCounter(&now);
+	QueryPerformanceFrequency(&frequency);
+	return (double)now.QuadPart / (double)frequency.QuadPart;
+#else
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+#endif
+}
+
+/* --pace: the frame's sixtieth of a second, as a window's (TMNT's headless') */
+static void pace_frame(void)
+{
+	static double next;
+	double now = seconds_now();
+
+	if (next == 0.0 || now > next + 0.1)
+		next = now;
+	next += 1.0 / 60.0;
+	while ((now = seconds_now()) < next)
+		sleep_ms(1);
+}
+
+#ifdef SEGASONIC_CONSOLE
+static bool lan_restart_wanted;    /* program_run left for a LAN game's start or end (console_lan_reset_wanted) */
+#endif
 
 static void on_frame_done(void)
 {
 	if (hashes)
-		fprintf(hashes, "%" PRIu64 " %016" PRIx64 "\n", program_frames() - 1, s32_state_hash());
-	if (dump_dir && program_frames() - 1 == dump_frame)
+		fprintf(hashes, "%" PRIu64 " %016" PRIx64 "\n", FRAMES_RUN - 1, s32_state_hash());
+	if (dump_dir && FRAMES_RUN - 1 == dump_frame)
 		dump_state();
 	if (video_hashes)
-		fprintf(video_hashes, "%" PRIu64 " %016" PRIx64 "\n", program_frames() - 1, s32_video_frame_hash());
+		fprintf(video_hashes, "%" PRIu64 " %016" PRIx64 "\n", FRAMES_RUN - 1, s32_video_frame_hash());
 	if (sound_hashes || sound_levels)
 	{
 		s32_board.time_passes(s32_board.cycles);
 		sound_chips_end_frame(s32_board.cycles);
 		if (sound_hashes)
-			fprintf(sound_hashes, "%" PRIu64 " %016" PRIx64 " %016" PRIx64 "\n", program_frames() - 1,
+			fprintf(sound_hashes, "%" PRIu64 " %016" PRIx64 " %016" PRIx64 "\n", FRAMES_RUN - 1,
 				sound_chips_frame_hash(), sound_board_state_hash());
 		if (sound_levels)
 			write_levels();
 	}
 	for (int index = 0; index < video_dump_count && video_dir; index++)
-		if (video_dumps[index] == program_frames() - 1)
+		if (video_dumps[index] == FRAMES_RUN - 1)
 		{
 			char path[1024];
 
 			snprintf(path, sizeof(path), "%s/frame_%" PRIu64 ".bmp", video_dir, video_dumps[index]);
 			write_bmp(path);
 		}
-	if (program_frames() >= frames_wanted)
+	if (FRAMES_RUN >= frames_wanted)
 		longjmp(finished, 1);
+	if (pace)
+		pace_frame();
+#ifdef SEGASONIC_CONSOLE
+	if (console_lan_reset_wanted())
+	{
+		lan_restart_wanted = true;    /* (a LAN game's start or end: the board reset, main's) */
+		longjmp(finished, 1);
+	}
+#endif
 }
 
 #ifdef SEGASONIC_CONSOLE
@@ -376,7 +443,8 @@ static void apply_actions(uint64_t frame)
 			if (frame == action_events[index].frame)
 				pressed |= ACTION_BIT(action_events[index].action);
 		}
-	start = (held & ACTION_BIT(ACTION_START)) && (!console_in_game() || console_start_prompted(0));
+	start = (held & ACTION_BIT(ACTION_START))
+		&& (console_lan_playing() || !console_in_game() || console_start_prompted(0));    /* (a LAN game's: lan_controls') */
 	button = (held & ACTION_BIT(ACTION_JUMP)) != 0;
 	/* (the ports are active low; a button the actions held is released when they let go of it) */
 	if (start)
@@ -395,18 +463,94 @@ static void apply_actions(uint64_t frame)
 	roll_y = ((held & ACTION_BIT(ACTION_DOWN)) != 0u) - ((held & ACTION_BIT(ACTION_UP)) != 0u);
 	s32_board.input.trackball_x[0] = (uint16_t)(s32_board.input.trackball_x[0] + roll_x * console_window_settings.key_roll);
 	s32_board.input.trackball_y[0] = (uint16_t)(s32_board.input.trackball_y[0] + roll_y * console_window_settings.key_roll);
+	if (console_lan_playing())
+	{
+		if (pressed & ACTION_BIT(ACTION_BACK))
+			console_lan_leave_game();    /* (a LAN game's: out of it, as the window's BACK) */
+		console_actions(0, 0);
+		return;
+	}
 	if (!console_in_game() && (pressed & ACTION_BIT(ACTION_BACK)))
 		console_back();
 	console_actions(pressed, held);
+}
+
+/* --lan-hashes: each LAN frame's number and the state's hash before it, as the host compares them */
+static FILE *lan_hashes;
+static bool lan_given;
+static s32_inputs lan_own;     /* player 1's controls as the script and the actions make them, apart from the board's */
+static s32_inputs lan_board;   /* the board's, every slot's, while the script and the actions make player 1's */
+
+/* A LAN game's frame (the window port's lan_controls): player 1's controls, the script's and the actions', to the
+   network (the trackball's turn since the last frame, its button and START), every slot's back onto the board's
+   players; held a frame at a time till they come */
+static void lan_controls(void)
+{
+	uint8_t own[CONSOLE_LAN_INPUT], slots[CONSOLE_LAN_SLOTS][CONSOLE_LAN_INPUT];
+	const s32_inputs mine = s32_board.input;
+	const int turn_x = (int16_t)(mine.trackball_x[0] - lan_own.trackball_x[0]);
+	const int turn_y = (int16_t)(mine.trackball_y[0] - lan_own.trackball_y[0]);
+	uint8_t port_a = 0xFFu, port_b = 0xFFu, port_e = 0xFFu;
+	int held = 0;
+
+	own[0] = (uint8_t)(int8_t)(turn_x < -127 ? -127 : (turn_x > 127 ? 127 : turn_x));
+	own[1] = (uint8_t)(int8_t)(turn_y < -127 ? -127 : (turn_y > 127 ? 127 : turn_y));
+	own[2] = (uint8_t)(((mine.port_a & 0x01u) == 0u ? CONSOLE_LAN_BUTTON : 0u)
+		| ((mine.port_e & 0x10u) == 0u ? CONSOLE_LAN_START : 0u));
+	lan_own = mine;
+	if (lan_given && lan_hashes)
+		fprintf(lan_hashes, "%" PRIu32 " %016" PRIx64 "\n", console_lan_frame_number(), console_lan_state_hash());
+	while (!console_lan_frame(own, slots))
+	{
+		sleep_ms(16);
+		if (++held > 60 * 30)
+		{
+			fprintf(stderr, "the LAN game held 30 seconds\n");
+			exit(4);
+		}
+	}
+	lan_given = console_lan_playing();
+	s32_board.input = lan_board;
+	for (int slot = 0; slot < CONSOLE_LAN_SLOTS; slot++)
+	{
+		static const uint8_t start_bits[CONSOLE_LAN_SLOTS] = { 0x10u, 0x20u, 0x80u };
+		const bool button = (slots[slot][2] & CONSOLE_LAN_BUTTON) != 0u;
+		const bool start = (slots[slot][2] & CONSOLE_LAN_START) != 0u && (!console_in_game() || console_start_prompted(slot));
+
+		s32_board.input.trackball_x[slot] = (uint16_t)(s32_board.input.trackball_x[slot] + (int8_t)slots[slot][0]);
+		s32_board.input.trackball_y[slot] = (uint16_t)(s32_board.input.trackball_y[slot] + (int8_t)slots[slot][1]);
+		if (button && slot == 1)
+			port_b &= (uint8_t)~0x01u;
+		else if (button)
+			port_a &= (uint8_t)~(slot == 0 ? 0x01u : 0x04u);
+		if (start)
+			port_e &= (uint8_t)~start_bits[slot];
+	}
+	s32_board.input.port_a = port_a;
+	s32_board.input.port_b = port_b;
+	s32_board.input.port_e = port_e;
 }
 #endif
 
 static void on_controls_update(void)
 {
 	/* VBLANK of the board's frame is starting */
-	s32_script_apply(script, s32_board.frame);
 #ifdef SEGASONIC_CONSOLE
-	apply_actions(s32_board.frame);
+	const bool lan = console_lan_playing();
+
+	if (lan)
+	{
+		lan_board = s32_board.input;    /* (the script and the actions make player 1's apart: lan_controls) */
+		s32_board.input = lan_own;
+	}
+#endif
+	s32_script_apply(script, VBLANKS_RUN);
+#ifdef SEGASONIC_CONSOLE
+	apply_actions(VBLANKS_RUN);
+	if (lan && console_lan_playing())
+		lan_controls();
+	else if (lan)
+		s32_board.input = lan_board;    /* (BACK left the game: the board's own, its frame with nothing pressed) */
 	if (wide_video)
 		s32_video_set_wide(console_wide_now());    /* (as the console's port does: the stages wider) */
 #endif
@@ -417,11 +561,11 @@ int main(int argc, char **argv)
 	const char *hashes_path = NULL;
 	const char *script_path = NULL;
 	const char *video_hashes_path = NULL;
-	const char *sound_hashes_path = NULL;
-	const char *sound_levels_path = NULL;
+	static const char *sound_hashes_path;    /* (static: read after a LAN restart's longjmp) */
+	static const char *sound_levels_path;
 	const char *sprite_census_path = NULL;
 	const char *tile_census_path = NULL;
-	const char *memory_census_path = NULL;
+	static const char *memory_census_path;
 	const char *assets_path = NULL;
 	const char *extract_source = NULL;
 	char beside[1024];
@@ -454,7 +598,19 @@ int main(int argc, char **argv)
 			if (!load_actions(argv[++index]))
 				return 1;
 		}
+		else if (strcmp(argv[index], "--lan-name") == 0 && index + 1 < argc)
+		{
+			snprintf(console_window_settings.name, sizeof(console_window_settings.name), "%s", argv[++index]);
+			lan_sound = true;    /* (a LAN game's state is the sound board's too: the window port's) */
+		}
+		else if (strcmp(argv[index], "--lan-hashes") == 0 && index + 1 < argc)
+		{
+			lan_hashes = fopen(argv[++index], "w");
+			lan_sound = true;
+		}
 #endif
+		else if (strcmp(argv[index], "--pace") == 0)
+			pace = true;
 		else if (strcmp(argv[index], "--video-dir") == 0 && index + 1 < argc)
 			video_dir = argv[++index];
 		else if (strcmp(argv[index], "--sound-hashes") == 0 && index + 1 < argc)
@@ -546,7 +702,7 @@ int main(int argc, char **argv)
 		s32_video_init(game_tiles, GAME_TILES_SIZE, game_sprites, GAME_SPRITES_SIZE);
 #endif
 #ifdef SEGASONIC_CONSOLE
-		console_window_settings.wide = wide_video;
+		console_window_settings.wide = wide_video ? CONSOLE_WIDE_16_9 : CONSOLE_WIDE_OFF;
 #else
 		s32_video_set_wide(wide_video);
 #endif
@@ -575,7 +731,7 @@ int main(int argc, char **argv)
 		}
 		s32_video_tile_observer = on_tile_shown;
 	}
-	if (sound_hashes_path || sound_levels_path)
+	if (sound_hashes_path || sound_levels_path || lan_sound)
 	{
 		s32_board.sound_rom = game_sound;
 		sound_chips_attach();
@@ -597,8 +753,37 @@ int main(int argc, char **argv)
 	program_reset();
 	program_frame_done = on_frame_done;
 
-	if (!setjmp(finished))
-		program_run();
+	for (;;)
+	{
+		if (!setjmp(finished))
+			program_run();
+#ifdef SEGASONIC_CONSOLE
+		if (lan_restart_wanted && FRAMES_RUN < frames_wanted)
+		{
+			/* (a LAN game's start or end: the sound board, the board and the program as at power-on, as the window
+			   port's lan_restart, the console as at power-on with the host's EEPROM, the program from its start) */
+			lan_restart_wanted = false;
+			frames_before_reset += program_frames();
+			vblanks_before_reset += s32_board.frame;
+			if (lan_sound || sound_hashes_path || sound_levels_path)
+			{
+				sound_chips_attach();
+				sound_cpu_power_on();
+			}
+			s32_init(game_program);
+			console_lan_power_on();
+			program_reset();
+			memset(&lan_own, 0, sizeof(lan_own));
+			lan_given = false;
+			continue;
+		}
+#endif
+		break;
+	}
+#ifdef SEGASONIC_CONSOLE
+	if (lan_hashes)
+		fclose(lan_hashes);
+#endif
 
 	if (hashes)
 		fclose(hashes);

@@ -102,6 +102,32 @@ Done 21-10-2026:
   decompilation by a link to segasonic-decomp. Its screenshots are the console build with WIDE, made by
   tools/make_screenshots.py on segasonic_console_headless, whose --actions presses the console's actions.
 
+Done 07-11-2026 (v1.4.0):
+- MULTIPLAYER (Sebas: "el multiplayer lan con el arcade-lan nuestro"): the title menu's line between TIME
+  ATTACK and OPTIONS (the menu a row higher, MENU_ROW 22). Its pages in OPTIONS' place over the faces
+  (console.c: HOST, JOIN, NAME, BACK; NAME's letters; JOIN's rooms; the room), the game through arcade-lan in
+  lockstep (lan.c, lan/ a submodule, as TMNT's): up to three devices, a player each in the room's order. The
+  host's START resets every device's board as at power-on (the port leaves the program and runs it again:
+  s32_init, the sound board's chips and Z80 as at power-on, sound_cpu_power_on; console_power_on), with the
+  host's EEPROM, CONTINUES and WIDE (wide_on: the game's frame; each window shows its own part of it), and
+  starts a game as START GAME does. Each VBLANK every device gives its player 1's trackball turn (a byte, the
+  rest the next frame), button and START, and the board takes every slot's; START is the board's start where
+  the player's prompt is up or out of a stage (no pause: BACK leaves the game, TMNT's). The work RAM's and the
+  shared RAM's hash goes to the host. The game over, the host gone, out of step or BACK: the board reset with
+  this device's own EEPROM (never written during a game) and the MULTIPLAYER page. While the frames hold,
+  WAITING FOR the device's name on the pause's row, drawn on a copy of the frame (the text layer put back).
+  Checked with two headless runs (--pace, --lan-name, --lan-hashes): 2495 frames the same, and a guest's BACK.
+- VSYNC in OPTIONS > VIDEO (on at first, segasonic.ini; the computers only): SDL_RenderSetVSync, the game at
+  its own pace, a game's frame a frame late not shown (frame_behind; the pause's and a held frame's always).
+- WIDE 16:10 (the Steam Deck): OFF, 16:10, 16:9 in OPTIONS; segasonic.ini names them (yes is 16:9); the
+  window's middle 358 columns of the same 416. Android picks 16:10 on a screen nearer it.
+- @cheviman over the title's (C) SEGA 1992 (the menu's font: the copyright's has capitals alone and its '@'
+  is the copyright sign), and the version (CMakeLists.txt's project version) at OPTIONS' bottom right.
+- TMNT's players' reports, here too: SDL_GameControllerDB built in (the computers and Android), a hint before
+  SDL starts with the player's gamecontrollerdb.txt after it; a TV's remote after the game controllers; the
+  controllers and the first presses in the log; the touch controls' size with a top in inches and their
+  labels inside their buttons; Android's back goes on from the pause.
+
 Next (in this order unless Sebas says otherwise):
 1. Done (25 October): macOS played on a Mac, the release's segasonic-macos-universal (unsigned: right click
    → Open, or Open Anyway): Sebas approved it.

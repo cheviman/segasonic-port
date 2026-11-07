@@ -4,7 +4,7 @@
  *                 file is saved while it runs, written back when a key changes one
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    13-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -38,7 +38,8 @@ port_settings settings = {
 	.smooth = false,
 	.bilinear = false,
 	.crt = false,
-	.wide = false,
+	.wide = 0,
+	.vsync = true,
 	.volume = 1.0,
 	.sega_jingle_program = 13.0,
 	.sega_jingle_layer = 2.0,
@@ -56,7 +57,15 @@ typedef struct entry
 	bool *flag;             /* ... or yes or no */
 	double low;
 	double high;
+	int *choice;            /* ... or one of 'names' (its index); yes and no are 'names' 1 and 0 */
+	const char *const *names;
+	int name_count;
+	char *text;             /* ... or a text of A-Z, 0-9, '.', '-' and spaces, 'text_size' with its end */
+	size_t text_size;
 } entry;
+
+/* WIDE's names (CONSOLE_WIDE_*'s order: yes, as the file had it before 16:10, is 16:9) */
+static const char *const wide_names[] = { "off", "16:9", "16:10" };
 
 static const entry entries[] = {
 	{ "mouse", "speed",
@@ -98,6 +107,10 @@ static const entry entries[] = {
 	{ "video", "crt",
 		"yes: a CRT's look, scanlines and a phosphor mask over smooth pixels (it goes over smooth and bilinear)",
 		NULL, &settings.crt, 0.0, 0.0 },
+	{ "video", "vsync",
+		"yes: each frame shown at the screen's refresh, with no tearing (the game keeps its own pace: a frame a\n"
+		"frame late is left out); no: as soon as it is drawn (OPTIONS > VIDEO > VSYNC)",
+		NULL, &settings.vsync, 0.0, 0.0 },
 	{ "sound", "volume",
 		"the game's sound, from 0 (none) to 2 (twice as loud)",
 		&settings.volume, NULL, 0.0, 2.0 },
@@ -112,11 +125,15 @@ static const entry entries[] = {
 		"the song of the title and its menu, by the game's sound id (1 stage 3's; OPTIONS' SOUND TEST sets it)",
 		&settings.title_music, NULL, 0.0, 255.0 },
 	{ "video", "wide",
-		"yes: a 16:9 picture, the stages wider at the sides, the other screens between black bars (OPTIONS' WIDE)",
-		NULL, &settings.wide, 0.0, 0.0 },
+		"16:9 or 16:10: a wider picture, the stages wider at the sides, the other screens between black bars;\n"
+		"off: the game's own (OPTIONS' WIDE)",
+		NULL, NULL, 0.0, 0.0, &settings.wide, wide_names, (int)(sizeof(wide_names) / sizeof(wide_names[0])) },
 	{ "game", "continues",
 		"a game's continues after its start, 0 to 9, or -1 for free play (OPTIONS' CONTINUES sets it)",
 		&settings.continues, NULL, -1.0, 9.0 },
+	{ "multiplayer", "name",
+		"your name in MULTIPLAYER's rooms: up to 10 of A-Z, 0-9, '.', '-' and spaces (MULTIPLAYER > NAME sets it)",
+		NULL, NULL, 0.0, 0.0, NULL, NULL, 0, settings.name, sizeof(settings.name) },
 #endif
 };
 
@@ -211,6 +228,37 @@ static bool take(const entry *setting, char *text)
 		*setting->flag = is_any(text, yes);
 		return true;
 	}
+	if (setting->text)
+	{
+		char taken[64];    /* (the text whole before it is the setting's: one that cannot be read leaves it as it was) */
+		size_t length = 0;
+
+		for (const char *at = text; *at; at++)
+		{
+			const char letter = *at >= 'a' && *at <= 'z' ? (char)(*at - 'a' + 'A') : *at;
+
+			if (length + 1 >= setting->text_size || length + 1 >= sizeof(taken) || !((letter >= 'A' && letter <= 'Z')
+				|| (letter >= '0' && letter <= '9') || letter == '.' || letter == '-' || letter == ' '))
+				return false;
+			taken[length++] = letter;
+		}
+		taken[length] = '\0';
+		memcpy(setting->text, taken, length + 1);
+		return true;
+	}
+	if (setting->choice)
+	{
+		for (int name = 0; name < setting->name_count; name++)
+			if (!SDL_strcasecmp(text, setting->names[name]))
+			{
+				*setting->choice = name;
+				return true;
+			}
+		if (!is_any(text, yes) && !is_any(text, no))
+			return false;
+		*setting->choice = is_any(text, yes) ? 1 : 0;
+		return true;
+	}
 	for (char *comma = strchr(text, ','); comma; comma = strchr(comma, ','))
 		*comma = '.';
 	number = strtod(text, &end);
@@ -274,6 +322,11 @@ static void write_value(FILE *output, const entry *setting, const char *comment)
 {
 	if (setting->flag)
 		fprintf(output, "%s = %s", setting->key, *setting->flag ? "yes" : "no");
+	else if (setting->text)
+		fprintf(output, "%s = %s", setting->key, setting->text);
+	else if (setting->choice)
+		fprintf(output, "%s = %s", setting->key,
+			setting->names[*setting->choice >= 0 && *setting->choice < setting->name_count ? *setting->choice : 0]);
 	else
 		fprintf(output, "%s = %.4g", setting->key, *setting->number);
 	if (comment)

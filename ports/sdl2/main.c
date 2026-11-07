@@ -4,7 +4,7 @@
  *                 the pace, around the same game and board the headless runs check
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    31-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -70,6 +70,7 @@
 #define MAPPINGS_FILE "gamecontrollerdb.txt"    /* more game controllers for SDL (SDL_GameControllerDB's) */
 
 #ifdef SEGASONIC_CONSOLE
+static bool lan_restart_wanted;     /* program_run was left for a LAN game's start or end (console_lan_reset_wanted) */
 static bool pause_requested;
 static bool bound_now;              /* CONTROLS took a key or button this frame */
 static void run_pause(void);
@@ -138,6 +139,7 @@ static double ball[PLAYERS][2];          /* counts a frame the ball turns */
 static bool mice_listening;              /* Raw Input tells the mice apart (mice_open) */
 #endif
 static uint64_t next_frame;           /* performance counter value the next frame waits for */
+static bool vsync_on;                 /* the renderer shows each frame at the screen's refresh (apply_vsync) */
 static double shown_scale;            /* the window's scale as it was last set */
 static int shown_width;               /* ... and its picture's width (picture_width) */
 static char eeprom_path[1024];
@@ -166,6 +168,10 @@ typedef struct resampler
 } resampler;
 
 static resampler chips[3];
+
+static void controller_added(int which);
+static void log_joystick(int index);
+static void log_press(const SDL_Event *event);
 
 /* ---- files ---- */
 
@@ -198,6 +204,10 @@ static void save_eeprom(void)
 
 	if (!s32_board.eeprom.dirty)
 		return;
+#ifdef SEGASONIC_CONSOLE
+	if (console_lan_playing())
+		return;    /* (a LAN game's EEPROM is the host's: never this device's file) */
+#endif
 	output = fopen(eeprom_path, "wb");
 	if (!output)
 		return;
@@ -221,12 +231,15 @@ static void load_eeprom(void)
 /* The frame in the window, as large as it fits with the game's proportions. Sharp pixels: the picture
    scaled straight up, each pixel a block. Smooth ones ("sharp bilinear"): first a whole number of times with
    sharp pixels into 'scaled', then that softened the rest of the way, so only the pixels' edges blend */
-#define WIDE_WIDTH  398    /* 16:9 at 224 rows: the video's 416 less 9 at each side */
+#define WIDE_WIDTH        398    /* 16:9 at 224 rows: the video's 416 less 9 at each side */
+#define WIDE_16_10_WIDTH  358    /* 16:10 (the Steam Deck's 1280 x 800): the video's 416 less 29 at each side */
 
-/* The window's picture, in the game's pixels: 320, or 16:9 with WIDE */
+/* The window's picture, in the game's pixels: 320, or 16:9 or 16:10 with WIDE */
 static int picture_width(void)
 {
 #ifdef SEGASONIC_CONSOLE
+	if (settings.wide == CONSOLE_WIDE_16_10)
+		return WIDE_16_10_WIDTH;
 	if (settings.wide)
 		return WIDE_WIDTH;
 #endif
@@ -253,6 +266,15 @@ static int room_under(int width, int height)
 	return height - picture >= ROOM_UNDER * height ? height - picture : 0;
 }
 
+/* WIDE for a screen of 'width' x 'height': none where the game's picture leaves room under it; else 16:10 where
+   the screen is nearer 16:10 than 16:9 (a tablet's), 16:9 where it is as wide or wider (a phone's) */
+static int wide_for_screen(int width, int height)
+{
+	if (width <= 0 || height <= 0 || room_under(width, height) > 0)
+		return width <= 0 || height <= 0 ? CONSOLE_WIDE_16_9 : CONSOLE_WIDE_OFF;
+	return (double)width / height < (16.0 / 9.0 + 16.0 / 10.0) / 2.0 ? CONSOLE_WIDE_16_10 : CONSOLE_WIDE_16_9;
+}
+
 /* The screen's size at a frame, as the renderer has it: the picture chosen again where it changed (the log
    says so) */
 static void follow_screen(int width, int height)
@@ -261,9 +283,10 @@ static void follow_screen(int width, int height)
 		return;
 	shape_width = width;
 	shape_height = height;
-	settings.wide = room_under(width, height) == 0;
+	settings.wide = wide_for_screen(width, height);
 	console_window_settings.wide = settings.wide;
-	fprintf(stderr, "screen %dx%d: %s\n", width, height, settings.wide ? "WIDE" : "the game's picture, the controls under it");
+	fprintf(stderr, "screen %dx%d: %s\n", width, height, settings.wide == CONSOLE_WIDE_16_10 ? "WIDE 16:10"
+		: settings.wide ? "WIDE 16:9" : "the game's picture, the controls under it");
 }
 #endif
 
@@ -385,7 +408,17 @@ static void clear_screen(const SDL_Rect *shown, double scale, int out_width, int
 static SDL_Rect picture_shown;    /* where the last frame was on the screen */
 #endif
 
-static void present(const uint32_t *pixels, int width)
+/* A game's frame a whole frame's time behind the game's pace (a screen a little slower than the board's 60 a
+   second, or the machine busy) is not shown with VSYNC, so that it does not wait for the screen's refresh: the
+   game, and its sound, keep their pace, a frame left out now and then (as outrunners-port's and TMNT's) */
+static bool frame_behind(void)
+{
+	return vsync_on && SDL_GetPerformanceCounter() > next_frame + SDL_GetPerformanceFrequency() / S32_FRAME_RATE;
+}
+
+/* The picture on the screen: a game's frame ('game_frame': left out when it is late, frame_behind), or the
+   pause's or a held frame's, always shown */
+static void present(const uint32_t *pixels, int width, bool game_frame)
 {
 	SDL_Rect source = { 0, 0, width, S32_VIDEO_HEIGHT };
 	SDL_Rect shown;
@@ -462,7 +495,8 @@ static void present(const uint32_t *pixels, int width)
 #ifdef SEGASONIC_PAUSE_EXIT
 	picture_shown = shown;    /* (the pause's choices under a finger: pause_item_at) */
 #endif
-	SDL_RenderPresent(renderer);
+	if (!game_frame || !frame_behind())
+		SDL_RenderPresent(renderer);
 }
 
 #ifdef SEGASONIC_CONSOLE
@@ -612,7 +646,7 @@ static void on_frame_shown(void)
 	if (prompt_sheet && console_controls_row(0) >= 0)
 		pixels = with_controls(pixels);
 #endif
-	present(pixels, width);
+	present(pixels, width, true);
 }
 
 static void toggle_full_screen(void)
@@ -786,6 +820,7 @@ static void tell_console_settings(void)
 	console_window_settings.bilinear = settings.bilinear;
 	console_window_settings.crt = settings.crt;
 	console_window_settings.wide = settings.wide;
+	console_window_settings.vsync = settings.vsync;
 	console_window_settings.volume = (int)lround(settings.volume * 5.0);
 	console_window_settings.title_music = (int)settings.title_music;
 	console_window_settings.continues = (int)settings.continues;
@@ -795,6 +830,7 @@ static void tell_console_settings(void)
 	console_window_settings.ball_rolls_on = settings.ball_rolls_on;
 	console_window_settings.ball_drag = settings.ball_drag;
 	console_window_settings.ball_friction = settings.ball_friction;
+	SDL_strlcpy(console_window_settings.name, settings.name, sizeof(console_window_settings.name));
 	console_window_settings.changed = false;
 }
 #endif
@@ -819,12 +855,12 @@ static void fix_settings(void)
 			width = mode.w;
 			height = mode.h;
 		}
-		settings.wide = width <= 0 || height <= 0 || room_under(width, height) == 0;
+		settings.wide = wide_for_screen(width, height);
 	}
 #elif defined(SEGASONIC_SCREEN_WIDE)
-	settings.wide = true;     /* (a 16:9 screen: the Switch's) */
+	settings.wide = CONSOLE_WIDE_16_9;    /* (a 16:9 screen: the Switch's) */
 #else
-	settings.wide = false;    /* (a 4:3 one: the game's own picture, twice its size on a handheld's 640 x 480) */
+	settings.wide = CONSOLE_WIDE_OFF;     /* (a 4:3 one: the game's own picture, twice its size on a handheld's 640 x 480) */
 #endif
 	settings.full_screen = true;
 	settings.smooth = true;
@@ -833,8 +869,24 @@ static void fix_settings(void)
 }
 #endif
 
+/* VSYNC (OPTIONS > VIDEO, segasonic.ini): the renderer shows each frame at the screen's refresh. The game keeps
+   its own pace, the board's 60 frames a second (wait_for_frame): a faster screen (120 Hz) shows a frame twice, a
+   frame a frame late is left out (frame_behind). A device's screen keeps the system's own refresh (and the
+   Anbernic's SDL 2.0.12 has no SDL_RenderSetVSync) */
+static void apply_vsync(void)
+{
+#ifndef SEGASONIC_HANDHELD
+	if (renderer && settings.vsync != vsync_on)
+	{
+		vsync_on = SDL_RenderSetVSync(renderer, settings.vsync ? 1 : 0) == 0 ? settings.vsync : false;
+		fprintf(stderr, "vsync: %s\n", vsync_on ? "on" : "off");
+	}
+#endif
+}
+
 static void apply_settings(void)
 {
+	apply_vsync();
 #ifdef SEGASONIC_HANDHELD
 	fix_settings();
 	set_smooth(settings.smooth);
@@ -878,6 +930,7 @@ static void read_events(void)
 
 	while (SDL_PollEvent(&event))
 	{
+		log_press(&event);
 #ifdef SEGASONIC_HANDHELD_KEYS
 		handheld_event(&event);
 #endif
@@ -934,8 +987,8 @@ static void read_events(void)
 				if (event.key.keysym.sym == SDLK_F4)
 					toggle_ball_rolls_on();
 #ifdef SEGASONIC_CONSOLE
-				if (event.key.keysym.sym == SDLK_F7 || event.key.keysym.sym == SDLK_F8)
-					console_debug_section(event.key.keysym.sym == SDLK_F8 ? 1 : -1);
+				if ((event.key.keysym.sym == SDLK_F7 || event.key.keysym.sym == SDLK_F8) && !console_lan_playing())
+					console_debug_section(event.key.keysym.sym == SDLK_F8 ? 1 : -1);    /* (not in a LAN game) */
 #endif
 				if (event.key.keysym.sym == SDLK_F5 || event.key.keysym.sym == SDLK_F6)
 					change_mouse_speed(event.key.keysym.sym == SDLK_F6);
@@ -969,13 +1022,11 @@ static void read_events(void)
 				}
 				break;
 #endif
+			case SDL_JOYDEVICEADDED:
+				log_joystick(event.jdevice.which);
+				break;
 			case SDL_CONTROLLERDEVICEADDED:
-				for (int player = 0; player < PLAYERS; player++)
-					if (!controllers[player])
-					{
-						controllers[player] = SDL_GameControllerOpen(event.cdevice.which);
-						break;
-					}
+				controller_added(event.cdevice.which);
 				break;
 			case SDL_CONTROLLERDEVICEREMOVED:
 				for (int player = 0; player < PLAYERS; player++)
@@ -991,6 +1042,80 @@ static void read_events(void)
 		}
 	}
 }
+
+#ifdef SEGASONIC_CONSOLE
+/* ---- MULTIPLAYER's game (console/lan.c: arcade-lan, in lockstep) ---- */
+
+#define LAN_TURN_MOST    127    /* trackball counts a frame in a LAN game's byte: past it, the next frame's */
+#define LAN_HELD_SHOWN   20     /* frames held before WAITING FOR shows (a third of a second: arcade-lan's unheard) */
+
+static void wait_for_frame(void);
+
+/* The frame as it stands with WAITING FOR the device's name on top, drawn again and its text layer put back (the
+   board's state stays every device's); CONTROLS' picture is free in a LAN game */
+static void present_waiting(void)
+{
+	int width;
+	const uint32_t *pixels;
+
+	console_lan_waiting_text(true);
+	draw_frame();
+	pixels = s32_video_frame(&width);
+	memcpy(controls_picture, pixels, sizeof(controls_picture));
+	console_lan_waiting_text(false);
+	present(controls_picture, width, false);
+}
+
+/* MULTIPLAYER's game: this device's player (its player 1's keys, mouse, game controller and touch controls) to the
+   network, and every slot's back onto the board's players (console_lan_frame), in the room's order; till they have
+   come the game holds here: the frame again, WAITING FOR the device's name after a third of a second, the events read
+   (BACK leaves the game, as TMNT's: the others play on), the pace kept. A turn of the ball past a byte a frame goes on
+   the next frame; START is the board's start where the player's prompt is up (to join, a continue) or out of a
+   stage, else nothing (a LAN game has no pause); no coins, service nor test */
+static void lan_controls(void)
+{
+	static int rest_x, rest_y;
+	uint8_t own[CONSOLE_LAN_INPUT], slots[CONSOLE_LAN_SLOTS][CONSOLE_LAN_INPUT];
+	const int turn_x = controls.roll_x[0] + rest_x, turn_y = controls.roll_y[0] + rest_y;
+	const int sent_x = turn_x < -LAN_TURN_MOST ? -LAN_TURN_MOST : (turn_x > LAN_TURN_MOST ? LAN_TURN_MOST : turn_x);
+	const int sent_y = turn_y < -LAN_TURN_MOST ? -LAN_TURN_MOST : (turn_y > LAN_TURN_MOST ? LAN_TURN_MOST : turn_y);
+	int held = 0;
+
+	rest_x = turn_x - sent_x;
+	rest_y = turn_y - sent_y;
+	own[0] = (uint8_t)(int8_t)sent_x;
+	own[1] = (uint8_t)(int8_t)sent_y;
+	own[2] = (uint8_t)((controls.button[0] ? CONSOLE_LAN_BUTTON : 0u) | (controls.start[0] ? CONSOLE_LAN_START : 0u));
+	if (actions_player_pressed(0) & ACTION_BIT(ACTION_BACK))
+		console_lan_leave_game();
+	while (!console_lan_frame(own, slots))
+	{
+		read_events();
+#ifdef SEGASONIC_TOUCH
+		actions_touch(touch_held());
+#endif
+		actions_read(controllers);
+		if (actions_player_pressed(0) & ACTION_BIT(ACTION_BACK))
+			console_lan_leave_game();
+		if (++held >= LAN_HELD_SHOWN && console_lan_waiting())
+			present_waiting();
+		wait_for_frame();
+	}
+	if (console_lan_reset_wanted())
+		rest_x = rest_y = 0;
+	for (int slot = 0; slot < PLAYERS && slot < CONSOLE_LAN_SLOTS; slot++)
+	{
+		controls.roll_x[slot] = (int8_t)slots[slot][0];
+		controls.roll_y[slot] = (int8_t)slots[slot][1];
+		controls.button[slot] = (slots[slot][2] & CONSOLE_LAN_BUTTON) != 0;
+		controls.start[slot] = (slots[slot][2] & CONSOLE_LAN_START) != 0
+			&& (!console_in_game() || console_start_prompted(slot));
+		controls.coin[slot] = false;
+	}
+	controls.service = controls.test = false;
+	pause_requested = false;
+}
+#endif
 
 /* the state of every control once a frame, where the board reads them */
 static void on_controls_update(void)
@@ -1048,7 +1173,9 @@ static void on_controls_update(void)
 		controls.roll_y[player] += (actions_holds(player, pad, ACTION_DOWN) - actions_holds(player, pad, ACTION_UP))
 			* (int)lround(settings.key_roll);
 		controls.button[player] = actions_holds(player, pad, ACTION_JUMP);
-		if (!console_in_game() || console_start_prompted(player))
+		if (console_lan_playing())
+			controls.start[player] |= (actions_player_held(player) & ACTION_BIT(ACTION_START)) != 0;    /* (lan_controls') */
+		else if (!console_in_game() || console_start_prompted(player))
 			controls.start[player] |= (actions_player_held(player) & ACTION_BIT(ACTION_START)) != 0;
 		else if (actions_player_pressed(player) & PAUSE_ACTIONS)
 			pause_requested = true;
@@ -1066,9 +1193,14 @@ static void on_controls_update(void)
 #endif
 	for (int player = 0; player < PLAYERS; player++)
 		controls.button[player] |= mouse_down[player];
-	if (!console_in_game() && (actions_pressed() & ACTION_BIT(ACTION_BACK)))
-		console_back();
-	console_actions(actions_pressed(), actions_held());
+	if (console_lan_playing())
+		console_actions(0, 0);    /* (a LAN game's console reads no device's own: every device's the same) */
+	else
+	{
+		if (!console_in_game() && (actions_pressed() & ACTION_BIT(ACTION_BACK)))
+			console_back();
+		console_actions(actions_pressed(), actions_held());
+	}
 	s32_video_set_wide(console_wide_now());    /* (this frame's sprites and picture) */
 #endif
 	controls.service = keys[SDL_SCANCODE_9] != 0;
@@ -1087,6 +1219,10 @@ static void on_controls_update(void)
 		controls.coin[player] |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK) != 0;
 #endif
 	}
+#ifdef SEGASONIC_CONSOLE
+	if (console_lan_playing())
+		lan_controls();    /* (MULTIPLAYER's game: every slot's controls from the network) */
+#endif
 
 	/* the board's ports are active low: a cleared bit is a pressed button */
 	input->port_a = (uint8_t)(0xff & ~(controls.button[0] ? 0x01 : 0) & ~(controls.button[2] ? 0x04 : 0));
@@ -1262,7 +1398,7 @@ static void run_pause(void)
 	console_pause_choice(choice);
 #endif
 	draw_pause_picture(&width);
-	present(pause_picture, width);
+	present(pause_picture, width, false);
 	while (paused)
 	{
 		while (SDL_PollEvent(&event))
@@ -1279,17 +1415,21 @@ static void run_pause(void)
 				|| (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT))))
 			{
 				toggle_full_screen();
-				present(pause_picture, width);
+				present(pause_picture, width, false);
 			}
 			if (event.type == SDL_WINDOWEVENT)
-				present(pause_picture, width);
+				present(pause_picture, width, false);
 #ifdef SEGASONIC_TOUCH
 			if (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERUP)
-				present(pause_picture, width);    /* (START lit while a finger is on it) */
+				present(pause_picture, width, false);    /* (START lit while a finger is on it) */
 #endif
 #ifdef SEGASONIC_PAUSE_EXIT
 			if (event.type == SDL_FINGERDOWN && pause_item_at(event.tfinger.x, event.tfinger.y) >= 0)
 				picked = pause_item_at(event.tfinger.x, event.tfinger.y);    /* (a choice touched: picked) */
+#endif
+#ifdef __ANDROID__
+			if (event.type == SDL_KEYDOWN && !event.key.repeat && event.key.keysym.scancode == SDL_SCANCODE_AC_BACK)
+				paused = false;    /* (Android's back goes on, as CONTINUE does: TMNT's) */
 #endif
 		}
 #ifdef SEGASONIC_TOUCH
@@ -1306,7 +1446,7 @@ static void run_pause(void)
 			choice = (actions_pressed() & ACTION_BIT(ACTION_UP)) ? CONSOLE_PAUSE_CONTINUE : CONSOLE_PAUSE_EXIT;
 			console_pause_choice(choice);
 			draw_pause_picture(&width);
-			present(pause_picture, width);
+			present(pause_picture, width, false);
 		}
 		if (picked < 0 && (actions_pressed() & ACTION_BIT(ACTION_ACCEPT)))
 			picked = choice;
@@ -1367,21 +1507,6 @@ static void log_written(void)
 #if !defined(_WIN32) && !defined(__SWITCH__)
 	fsync(fileno(stderr));
 #endif
-}
-
-/* The mappings as a hint before SDL starts: the game controllers it finds then are opened as such (added
-   after, a joystick already there stays a joystick until it is plugged in again, as SDL 2.0.12 does) */
-static void add_device_mappings(void)
-{
-	static char mappings[2048];
-
-	mappings[0] = '\0';
-	for (size_t mapping = 0; mapping < SDL_arraysize(device_mappings); mapping++)
-	{
-		SDL_strlcat(mappings, device_mappings[mapping], sizeof(mappings));
-		SDL_strlcat(mappings, "\n", sizeof(mappings));
-	}
-	SDL_SetHint(SDL_HINT_GAMECONTROLLERCONFIG, mappings);
 }
 
 #ifdef SEGASONIC_HANDHELD_KEYS
@@ -1487,6 +1612,34 @@ static void log_pace(bool frame_made)
 }
 #endif
 
+#ifdef SEGASONIC_CONSOLE
+/* A LAN game's start or end (console_lan_reset_wanted), with the program left: the sound board, the board and the
+   program as at power-on, the same on every device (the board's time from 0 again); this device's EEPROM, written
+   before a game and read again after it (a game's is the host's: console_lan_power_on puts it over the board's), the
+   console's state, and the sound and the controls from nothing */
+static void lan_restart(void)
+{
+	save_eeprom();    /* (before a game: this device's own, read again after it) */
+	sound_chips_attach();
+	sound_cpu_power_on();
+	s32_init(game_program);
+	load_eeprom();
+	console_lan_power_on();
+	program_reset();
+	for (int chip = 0; chip < 3; chip++)
+		chips[chip].count = 0, chips[chip].position = 0.0;
+	if (audio)
+		SDL_ClearQueuedAudio(audio);
+	SDL_zero(controls);
+	SDL_zero(ball);
+	SDL_zero(hand);
+	SDL_zero(mouse_rest);
+	pause_requested = false;
+	next_frame = SDL_GetPerformanceCounter();
+	fprintf(stderr, "MULTIPLAYER: %s\n", console_lan_playing() ? "a game starts" : "the game is over");
+}
+#endif
+
 static void on_frame_done(void)
 {
 #ifdef SEGASONIC_HANDHELD
@@ -1504,6 +1657,7 @@ static void on_frame_done(void)
 		settings.bilinear = console_window_settings.bilinear;
 		settings.crt = console_window_settings.crt;
 		settings.wide = console_window_settings.wide;
+		settings.vsync = console_window_settings.vsync;
 		settings.volume = console_window_settings.volume / 5.0;
 		settings.title_music = console_window_settings.title_music;
 		settings.continues = console_window_settings.continues;
@@ -1513,14 +1667,25 @@ static void on_frame_done(void)
 		settings.ball_rolls_on = console_window_settings.ball_rolls_on;
 		settings.ball_drag = console_window_settings.ball_drag;
 		settings.ball_friction = console_window_settings.ball_friction;
+		SDL_strlcpy(settings.name, console_window_settings.name, sizeof(settings.name));
 		apply_settings();
 		settings_save();
 	}
 	tell_console_settings();    /* (F11, F3 and F4 to F6 change them too) */
 	if (console_best_times.changed)
 		save_times();
+	if (pause_requested && console_lan_playing())
+	{
+		pause_requested = false;
+		console_lan_leave_game();    /* (a LAN game has no pause: Android's game gone to the background leaves it) */
+	}
 	if (pause_requested)
 		run_pause();
+	if (console_lan_reset_wanted())
+	{
+		lan_restart_wanted = true;    /* (a LAN game's start or end: the program left, the board reset: main's) */
+		longjmp(finished, 1);
+	}
 #endif
 	if (program_frames() % 600 == 0)
 		save_eeprom();
@@ -1553,39 +1718,174 @@ static int fail(const char *what, const char *detail)
 	return 1;
 }
 
+/* ---- the game controllers ---- */
+
+#ifdef SEGASONIC_CONTROLLER_DB
+/* SDL_GameControllerDB's mappings for this platform (ports/sdl2/controllerdb, built in by CMakeLists.txt) */
+extern const unsigned char segasonic_controller_db[];
+extern const size_t segasonic_controller_db_size;
+#endif
+
+/* Text added at the end of a growing one (malloc's: the Anbernic's SDL 2.0.12 is linked by name only) */
+static void add_text(char **text, size_t *length, const char *more, size_t count)
+{
+	char *grown = (char *)realloc(*text, *length + count + 1);
+
+	if (!grown)
+		return;
+	memcpy(grown + *length, more, count);
+	*length += count;
+	grown[*length] = '\0';
+	*text = grown;
+}
+
 #ifndef SEGASONIC_HANDHELD
 static char *saves_folder(void);
 
 /* gamecontrollerdb.txt, where the game keeps what it writes or else beside the executable: the mappings of
-   the game controllers SDL does not know (a generic pad: without one it is only a joystick, which the game
-   does not take), a line each as SDL_GameControllerDB has them. A hint before SDL starts, as a mapping
-   added after leaves a joystick already there as it was */
-static void add_mappings_file(void)
+   the game controllers SDL does not know, a line each as SDL_GameControllerDB has them; its lines for this
+   platform (or for none) at the end of 'text', without carriage returns */
+static void add_mappings_file(char **text, size_t *length)
 {
-	static char path[1024];
+	char path[1024];
 	char *folders[2];
+	const char *platform = SDL_GetPlatform();
 
 	folders[0] = saves_folder();
 	folders[1] = SDL_GetBasePath();
 	for (int folder = 0; folder < 2; folder++)
 	{
-		SDL_RWops *file = NULL;
+		FILE *file;
+		char line[2048];
+		int lines = 0;
 
 		if (!folders[folder])
 			continue;
 		snprintf(path, sizeof(path), "%s" MAPPINGS_FILE, folders[folder]);
-		file = SDL_RWFromFile(path, "rb");
-		if (!file)
+		if ((file = fopen(path, "r")) == NULL)
 			continue;
-		SDL_RWclose(file);
-		SDL_SetHint(SDL_HINT_GAMECONTROLLERCONFIG_FILE, path);
-		fprintf(stderr, "game controllers: %s\n", path);
+		while (fgets(line, sizeof(line), file))
+		{
+			char *end = line + strlen(line), *field = strstr(line, "platform:");
+
+			while (end > line && (end[-1] == '\n' || end[-1] == '\r'))
+				*--end = '\0';
+			if (line[0] == '\0' || line[0] == '#'
+				|| (field && (strncmp(field + 9, platform, strlen(platform)) != 0 || field[9 + strlen(platform)] != ',')))
+				continue;
+			add_text(text, length, line, strlen(line));
+			add_text(text, length, "\n", 1);
+			lines++;
+		}
+		fclose(file);
+		fprintf(stderr, "game controllers: %s, %d mappings for %s\n", path, lines, platform);
 		break;
 	}
 	SDL_free(folders[0]);
 	SDL_free(folders[1]);
 }
 #endif
+
+/* The game controllers' mappings, a hint before SDL starts (SDL_HINT_GAMECONTROLLERCONFIG, which SDL reads before
+   it looks for joysticks: a mapping added after leaves a joystick already plugged in a joystick, which the game
+   does not take, as SDL 2.32's SDL_PrivateAddMappingForGUID does). SDL_GameControllerDB's for this platform built
+   in (TMNT's players' report: an Nvidia Shield's PS4 and Xbox controllers), a handheld's own buttons, and last the
+   player's gamecontrollerdb.txt, so that its lines go over the others for the same controller */
+static void add_mappings(void)
+{
+	char *text = NULL;
+	size_t length = 0;
+
+#ifdef SEGASONIC_CONTROLLER_DB
+	add_text(&text, &length, (const char *)segasonic_controller_db, segasonic_controller_db_size);
+#endif
+#ifdef SEGASONIC_HANDHELD
+	for (size_t mapping = 0; mapping < SDL_arraysize(device_mappings); mapping++)
+	{
+		add_text(&text, &length, device_mappings[mapping], strlen(device_mappings[mapping]));
+		add_text(&text, &length, "\n", 1);
+	}
+#else
+	add_mappings_file(&text, &length);
+#endif
+	if (text)
+		SDL_SetHint(SDL_HINT_GAMECONTROLLERCONFIG, text);
+	free(text);
+}
+
+/* What SDL finds of each joystick, in the log (TMNT's players' report: on an Nvidia Shield the controllers'
+   buttons did what they should not): its name, its GUID, whether it is a game controller and its mapping; and
+   the first presses of keys and buttons, to tell a controller's button that comes as a key */
+#define INPUT_LOG_PRESSES   48
+
+static void log_joystick(int index)
+{
+	char guid_text[33];
+	const SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(index);
+	const char *name = SDL_JoystickNameForIndex(index);
+	char *mapping;
+
+	SDL_JoystickGetGUIDString(guid, guid_text, sizeof(guid_text));
+	mapping = SDL_GameControllerMappingForGUID(guid);
+	fprintf(stderr, "joystick %d: %s, GUID %s, %s%s\n", index, name ? name : "(no name)", guid_text,
+		SDL_IsGameController(index) ? "a game controller: " : "no game controller (no mapping)",
+		SDL_IsGameController(index) && mapping ? mapping : "");
+	SDL_free(mapping);
+}
+
+static void log_press(const SDL_Event *event)
+{
+	static int presses;
+
+	if (presses >= INPUT_LOG_PRESSES)
+		return;
+	if (event->type == SDL_KEYDOWN && !event->key.repeat)
+		fprintf(stderr, "key %s (scancode %d)\n", SDL_GetKeyName(event->key.keysym.sym), (int)event->key.keysym.scancode);
+	else if (event->type == SDL_CONTROLLERBUTTONDOWN)
+		fprintf(stderr, "game controller %d: %s\n", (int)event->cbutton.which,
+			SDL_GameControllerGetStringForButton((SDL_GameControllerButton)event->cbutton.button));
+	else if (event->type == SDL_JOYBUTTONDOWN)
+		fprintf(stderr, "joystick %d: button %d\n", (int)event->jbutton.which, (int)event->jbutton.button);
+	else
+		return;
+	if (++presses == INPUT_LOG_PRESSES)
+		fprintf(stderr, "(no more presses in the log)\n");
+}
+
+/* A TV's remote, which SDL takes for a game controller (the Shield's, Android TV's, Fire TV's: "... Remote") */
+static bool is_remote(SDL_GameController *pad)
+{
+	const char *name = SDL_GameControllerName(pad);
+
+	for (const char *at = name ? name : ""; *at; at++)
+		if ((at[0] | 0x20) == 'r' && (at[1] | 0x20) == 'e' && (at[2] | 0x20) == 'm' && (at[3] | 0x20) == 'o'
+			&& (at[4] | 0x20) == 't' && (at[5] | 0x20) == 'e')
+			return true;
+	return false;
+}
+
+/* A game controller plugged in: the first player without one, but a game controller before a TV's remote (TMNT's
+   player's report: the Shield's remote, found first, took player 1 from his Xbox controller) */
+static void controller_added(int which)
+{
+	for (int player = 0; player < PLAYERS; player++)
+		if (!controllers[player])
+		{
+			controllers[player] = SDL_GameControllerOpen(which);
+			if (!controllers[player] || is_remote(controllers[player]))
+				return;
+			for (int before = 0; before < player; before++)
+				if (is_remote(controllers[before]))
+				{
+					SDL_GameController *remote = controllers[before];
+
+					controllers[before] = controllers[player];
+					controllers[player] = remote;
+					return;
+				}
+			return;
+		}
+}
 
 /* Where the game keeps what it writes (its settings, the EEPROM): beside the executable on Windows, as it
    always was; elsewhere the user's own folder for the game (SDL_GetPrefPath: ~/.local/share/SegaSonic,
@@ -1694,16 +1994,10 @@ int main(int argc, char **argv)
 #ifdef SEGASONIC_TOUCH_TEST
 	SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "1");    /* (a computer's check of the touch controls: the mouse a finger) */
 #endif
-#ifdef SEGASONIC_HANDHELD
-	add_device_mappings();
-#else
-	add_mappings_file();
-#endif
+	add_mappings();
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0)
 		return fail("SDL could not start.", SDL_GetError());
-#ifndef SEGASONIC_HANDHELD
 	fprintf(stderr, "game controllers: %d mappings\n", SDL_GameControllerNumMappings());
-#endif
 #ifdef __SWITCH__
 	base = SDL_strdup("romfs:/");
 #else
@@ -1809,6 +2103,7 @@ int main(int argc, char **argv)
 #endif
 	SDL_RenderSetIntegerScale(renderer, SDL_FALSE);
 	SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
+	apply_vsync();    /* (segasonic.ini's VSYNC, on at first) */
 #ifndef SEGASONIC_CONSOLE
 	SDL_SetRelativeMouseMode(SDL_TRUE);    /* (the arcade's trackball; the console's waits for a click) */
 #endif
@@ -1858,8 +2153,20 @@ int main(int argc, char **argv)
 	program_frame_done = on_frame_done;
 	next_frame = SDL_GetPerformanceCounter();
 
-	if (!setjmp(finished))
-		program_run();
+	for (;;)
+	{
+		if (!setjmp(finished))
+			program_run();
+#ifdef SEGASONIC_CONSOLE
+		if (lan_restart_wanted)
+		{
+			lan_restart_wanted = false;
+			lan_restart();    /* (a LAN game's start or end: the program from its start again) */
+			continue;
+		}
+#endif
+		break;
+	}
 
 	save_eeprom();
 #ifdef SEGASONIC_HANDHELD_KEYS

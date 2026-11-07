@@ -3,7 +3,7 @@
 #              their source, and the APKs around them: the game's, for SegaSonic APK, and this computer's own
 # Version:     0.1.0
 # Created:     25-10-2026
-# Modified:    25-10-2026
+# Modified:    07-11-2026
 # Author:      Sebastian Toyos
 #
 # Included by CMakeLists.txt when the toolchain is the NDK's (build/cmake/android.toolchain.cmake, with
@@ -25,8 +25,9 @@
 target_compile_definitions(sonic_game_console PUBLIC SEGASONIC_HANDHELD SEGASONIC_SYSTEM_EXIT SEGASONIC_SCREEN_WIDE
 	SEGASONIC_PAUSE_EXIT SEGASONIC_TOUCH)
 
-set(SONIC_ANDROID_VERSION 1.3.1)
-set(SONIC_ANDROID_VERSION_CODE 10301)    # (major * 10000 + minor * 100 + patch)
+set(SONIC_ANDROID_VERSION ${PROJECT_VERSION})    # (CMakeLists.txt's project version, the port's release)
+math(EXPR SONIC_ANDROID_VERSION_CODE
+	"${PROJECT_VERSION_MAJOR} * 10000 + ${PROJECT_VERSION_MINOR} * 100 + ${PROJECT_VERSION_PATCH}")
 set(SONIC_ANDROID_TARGET_SDK 35)
 set(SONIC_ANDROID_MIN_SDK 24)    # (Android 7: the APK's signature is v2's alone, as SegaSonic APK signs it)
 string(REGEX MATCH "[0-9]+" SONIC_ANDROID_PLATFORM_LEVEL "${ANDROID_PLATFORM}")
@@ -49,7 +50,7 @@ FetchContent_MakeAvailable(SDL2)
 
 add_library(main SHARED ports/sdl2/main.c ports/sdl2/settings.c ports/sdl2/actions.c ports/sdl2/letters.c
 	ports/sdl2/touch.c)
-target_link_libraries(main PRIVATE sonic_game_console sonic_data SDL2::SDL2)
+target_link_libraries(main PRIVATE sonic_game_console sonic_data segasonic_controller_db SDL2::SDL2)
 target_compile_definitions(main PRIVATE _BSD_SOURCE)    # (bionic's funopen: the pack in the APK, main.c)
 
 # The SDK around the NDK (sdk/ndk/<version>), else ANDROID_HOME: the platform's android.jar, the newest

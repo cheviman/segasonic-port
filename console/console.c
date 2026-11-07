@@ -4,7 +4,7 @@
  *                 sound, no coins, PRESS START on the title and a menu over it
  *    Version:     0.1.0
  *    Created:     19-10-2026
- *    Modified:    01-11-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    The game's C (src/) stays as the decompilation wrote it. A function listed in console/replaced.txt is
@@ -16,6 +16,7 @@
  */
 #include "game.h"
 #include "console.h"
+#include "console_lan.h"
 #include "s32/video.h"
 
 #include <math.h>
@@ -36,8 +37,13 @@
 #define PRESSED_BUTTONS    0x1050000u   /* and the three players' buttons */
 
 #define PRESS_START_ROW    25u      /* under the emblem's ribbon */
-#define MENU_ROW           23u      /* the menu's first line, under the logo */
+#define MENU_ROW           22u      /* the menu's first line, under the logo (its five lines to @cheviman's row) */
 #define COPYRIGHT_ROW      27u      /* the title's (C) SEGA 1992 line */
+#define SIGNATURE          "@cheviman"    /* the port's author, over the title's (C) SEGA 1992 (Sebas), in
+                                             the menu's font: the copyright's (0xC0 on, ASCII + 0x9A) has
+                                             capitals alone, and its '@' is the copyright sign */
+#define SIGNATURE_ROW      26u
+#define SIGNATURE_END      39u      /* the column after its last letter: where (C) SEGA 1992 ends */
 #define MENU_TRAVEL        48       /* the trackball's y travel that moves the cursor one line, */
 #define MENU_PAUSE         16       /* and the frames before it moves again */
 #define SEGA_LOGO_LAST     0x3C     /* sega_logo_timer at the end of its last step (run_sega_logo, step 6) */
@@ -52,12 +58,13 @@ static const uint8_t attract_order[8] = {
 };
 
 /* (where the device's system leaves games, SEGASONIC_SYSTEM_EXIT: the Switch's HOME button, there is no EXIT) */
+enum { MENU_START_GAME, MENU_TIME_ATTACK, MENU_MULTIPLAYER, MENU_OPTIONS, MENU_EXIT };
 #ifdef SEGASONIC_SYSTEM_EXIT
-static const char *const menu_items[] = { "START GAME", "TIME ATTACK", "OPTIONS" };
-#define MENU_ITEMS  3
-#else
-static const char *const menu_items[] = { "START GAME", "TIME ATTACK", "OPTIONS", "EXIT" };
+static const char *const menu_items[] = { "START GAME", "TIME ATTACK", "MULTIPLAYER", "OPTIONS" };
 #define MENU_ITEMS  4
+#else
+static const char *const menu_items[] = { "START GAME", "TIME ATTACK", "MULTIPLAYER", "OPTIONS", "EXIT" };
+#define MENU_ITEMS  5
 #endif
 
 static uint32_t title_frames;     /* frames the title has shown its logo (PRESS START blinks by them) */
@@ -65,7 +72,8 @@ static bool sega_logo_shown;      /* the SEGA logo has been shown (once, at powe
 static bool title_music_started;  /* this title's music has been asked for */
 static bool menu_open;            /* the menu is over the title */
 static bool options_open;         /* OPTIONS is on screen (system mode 1) */
-static bool menu_after_title;     /* back from OPTIONS: the title opens its menu */
+static bool menu_after_title;     /* back from OPTIONS: the title opens its menu, */
+static int menu_after_choice = MENU_OPTIONS;    /* on this line */
 static bool menu_opening;         /* its first frame */
 static int menu_choice;
 static int menu_travel;
@@ -123,6 +131,10 @@ static int time_attack_level = -1; /* the level the map picked: 0, Eggman's, the
 static void end_game_credits(void);
 static void wide_how_to_play(void);
 static void debug_sections(void);
+static void start_game(void);
+static void open_lan_pages(void);
+static void run_lan(void);
+static bool lan_open;              /* a MULTIPLAYER page is on screen (system mode 1, OPTIONS' place) */
 
 /* ---- the SEGA logo's jingle: two chords through the sound driver's own MIDI queue ---- */
 
@@ -222,6 +234,13 @@ static bool title_logo_up(void)
 	return title_scene_built != 0u && title_timer > 0;
 }
 
+/* @cheviman over the title's (C) SEGA 1992, ending where it ends: a watermark (Sebas). The menu's lines erase
+   the row each frame: it is written after them */
+static void draw_signature(void)
+{
+	write_text(SIGNATURE_END - (uint32_t)(sizeof(SIGNATURE) - 1u), SIGNATURE_ROW, SIGNATURE, MENU_TEXT);
+}
+
 /* System mode 0 at power-on (and after the test mode): instead of the licence screen, the title; and no
    coins: the game's own free play (COIN/CREDIT SETTING 26), set over what apply_settings just read */
 void attract_warning(uint32_t *p_pixels, uint32_t *p_text)
@@ -237,6 +256,10 @@ void attract_warning(uint32_t *p_pixels, uint32_t *p_text)
 	attract_step = 0u;
 	system_mode = attract_order[0];
 	system_mode_step = 0u;
+	if (console_lan_playing())
+		start_game();    /* (a LAN game: at once, as START GAME starts one, on every device alike) */
+	else if (console_lan_page_after())
+		open_lan_pages();    /* (a LAN game over: MULTIPLAYER, what went wrong on it) */
 }
 
 /* The next attract screen, in the console's order */
@@ -245,7 +268,10 @@ void advance_attract_screen(void)
 	uint32_t next_step = 0;
 
 	if (game_in_progress == 0u)
+	{
 		end_game_credits();    /* (game over, or the ending, goes on to the attract mode) */
+		console_lan_game_over();    /* (a LAN game's: over for every device alike) */
+	}
 	if (times_pending)
 	{
 		times_pending = false;    /* (a TIME ATTACK run that reached the ending: its times) */
@@ -311,13 +337,16 @@ void attract_title(uint32_t *p_color, uint32_t *p_row_pairs_left, uint32_t *p_bl
 	sega_logo_shown = true;
 	if (menu_after_title && !menu_open)
 	{
-		menu_after_title = false;    /* (back from OPTIONS: the menu again, on OPTIONS) */
+		menu_after_title = false;    /* (back from OPTIONS: the menu again, on OPTIONS; from TIME ATTACK on it) */
 		open_menu();
-		menu_choice = 1;
+		menu_choice = menu_after_choice;
+		menu_after_choice = MENU_OPTIONS;
 	}
 	if (menu_open)
 	{
 		run_menu();
+		if (system_mode == MODE_TITLE && menu_open)
+			draw_signature();    /* (not when the menu just left the title: a game, OPTIONS) */
 		return;
 	}
 	title_frames++;
@@ -325,6 +354,7 @@ void attract_title(uint32_t *p_color, uint32_t *p_row_pairs_left, uint32_t *p_bl
 		erase_line(PRESS_START_ROW);
 	else
 		write_centered(PRESS_START_ROW, "PRESS START", text_attribute());
+	draw_signature();
 }
 
 /* The credit line: with free play (always, in the console) nothing; the game's otherwise */
@@ -380,6 +410,7 @@ static void erase_menu(void)
 
 	for (item = 0; item < MENU_ITEMS; item++)
 		erase_line(MENU_ROW + (uint32_t)item);
+	erase_line(SIGNATURE_ROW);    /* (the title's left for a game: no @cheviman in it) */
 }
 
 static void open_menu(void)
@@ -465,6 +496,19 @@ static bool picked(void)
 
 static void open_options(void);
 
+/* START GAME: as the game's own start does (and a LAN game's, at its power-on) */
+static void start_game(void)
+{
+	menu_open = false;
+	erase_menu();
+	give_game_credits();
+	system_mode = MODE_GAME;
+	game_mode = 0u;
+	system_mode_step = 0u;
+	game_in_progress = 0xFFu;
+	game_sees_start = true;
+}
+
 /* The menu over the title: the cursor follows player 1's trackball up and down (or the actions up and
    down), the start button, the button or the actions accept and start pick */
 static void run_menu(void)
@@ -480,20 +524,16 @@ static void run_menu(void)
 		return;    /* (the press that opened the menu picks nothing) */
 	switch (menu_choice)
 	{
-	case 0:    /* START GAME: as the game's own start does */
-		menu_open = false;
-		erase_menu();
-		give_game_credits();
-		system_mode = MODE_GAME;
-		game_mode = 0u;
-		system_mode_step = 0u;
-		game_in_progress = 0xFFu;
-		game_sees_start = true;
+	case MENU_START_GAME:
+		start_game();
 		break;
-	case 1:    /* TIME ATTACK: the map, then the level picked, timed */
+	case MENU_TIME_ATTACK:    /* the map, then the level picked, timed */
 		start_time_attack();
 		break;
-	case 2:    /* OPTIONS */
+	case MENU_MULTIPLAYER:    /* the LAN game's pages */
+		open_lan_pages();
+		break;
+	case MENU_OPTIONS:
 		open_options();
 		break;
 	default:   /* EXIT */
@@ -514,6 +554,7 @@ enum
 	OPTION_FULL_SCREEN,
 	OPTION_PIXELS,
 	OPTION_WIDE,
+	OPTION_VSYNC,
 	OPTION_VOLUME,
 	OPTION_CONTROLS,
 	OPTION_TRACKBALL,
@@ -524,9 +565,13 @@ enum
 };
 
 static const char *const option_names[OPTION_COUNT] = {
-	"DIFFICULTY", "VITALITY", "CONTINUES", "VIDEO", "WINDOW", "FULL SCREEN", "PIXELS", "WIDE", "VOLUME", "CONTROLS",
-	"TRACKBALL", "SOUND TEST", "STAGE SELECT", "BACK"
+	"DIFFICULTY", "VITALITY", "CONTINUES", "VIDEO", "WINDOW", "FULL SCREEN", "PIXELS", "WIDE", "VSYNC", "VOLUME",
+	"CONTROLS", "TRACKBALL", "SOUND TEST", "STAGE SELECT", "BACK"
 };
+
+/* WIDE's values in OPTIONS' order (the narrower first), and their names there */
+static const int wide_order[CONSOLE_WIDE_KINDS] = { CONSOLE_WIDE_OFF, CONSOLE_WIDE_16_10, CONSOLE_WIDE_16_9 };
+static const char *const wide_names[CONSOLE_WIDE_KINDS] = { "< OFF >", "< 16:9 >", "< 16:10 >" };
 
 /* The pages: OPTIONS, and VIDEO under it (its BACK goes back to OPTIONS). A game device's build
    (SEGASONIC_HANDHELD) has no VIDEO: its picture is fixed; nor CONTROLS where the device's controls are fixed
@@ -543,7 +588,8 @@ static const int main_options[] = {
 #endif
 	OPTION_SOUND_TEST, OPTION_STAGE_SELECT, OPTION_BACK
 };
-static const int video_options[] = { OPTION_WINDOW, OPTION_FULL_SCREEN, OPTION_PIXELS, OPTION_WIDE, OPTION_BACK };
+static const int video_options[] = { OPTION_WINDOW, OPTION_FULL_SCREEN, OPTION_PIXELS, OPTION_WIDE, OPTION_VSYNC,
+	OPTION_BACK };
 
 #define MAIN_OPTIONS  ((int)(sizeof(main_options) / sizeof(main_options[0])))
 #define VIDEO_OPTIONS ((int)(sizeof(video_options) / sizeof(video_options[0])))
@@ -552,13 +598,19 @@ static bool video_open;    /* the VIDEO page is on screen, in OPTIONS' place */
 
 #define OPTIONS_TITLE_ROW   4u
 #define OPTIONS_FIRST_ROW   8u      /* then a line every two rows */
+#ifndef SEGASONIC_VERSION
+#define SEGASONIC_VERSION   "0.0.0"    /* (CMakeLists.txt's project version) */
+#endif
+#define VERSION_TEXT        "V" SEGASONIC_VERSION    /* the port's release, at the page's bottom right (Sebas) */
+#define VERSION_ROW         27u
 #define OPTION_NAME_COLUMN  8u
 #define OPTION_VALUE_COLUMN 24u
 #define WINDOW_SCALE_MOST   6
 #define VOLUME_MOST         10
 
-console_window console_window_settings = { 3, false, false, false, false, false, 5, 0x01, 3, 30, 30, 0.35, true, 0.98,
-	0.3, false };
+console_window console_window_settings = { .window_scale = 3, .wide = CONSOLE_WIDE_OFF, .vsync = true, .volume = 5,
+	.title_music = 0x01, .continues = 3, .stick_roll = 30, .key_roll = 30, .mouse_speed = 0.35, .ball_rolls_on = true,
+	.ball_drag = 0.98, .ball_friction = 0.3 };
 
 static int option_choice;    /* the line chosen on the page shown */
 static int option_travel, option_wait, value_travel, value_wait;
@@ -617,7 +669,11 @@ static void option_value(int option, char *text)
 		strcpy(text, console_window_settings.full_screen ? "< ON  >" : "< OFF >");
 		return;
 	case OPTION_WIDE:
-		strcpy(text, console_window_settings.wide ? "< 16:9 >" : "< OFF >");
+		strcpy(text, wide_names[console_window_settings.wide > 0 && console_window_settings.wide < CONSOLE_WIDE_KINDS
+			? console_window_settings.wide : CONSOLE_WIDE_OFF]);
+		return;
+	case OPTION_VSYNC:
+		strcpy(text, console_window_settings.vsync ? "< ON  >" : "< OFF >");
 		return;
 	case OPTION_PIXELS:
 		strcpy(text, console_window_settings.crt ? "< CRT >" : console_window_settings.bilinear ? "< BILINEAR >"
@@ -666,6 +722,7 @@ static void draw_options(void)
 		option_value(options[line], value);
 		write_text(OPTION_VALUE_COLUMN, row, value, attribute);
 	}
+	write_text(SIGNATURE_END - (uint32_t)(sizeof(VERSION_TEXT) - 1u), VERSION_ROW, VERSION_TEXT, MENU_TEXT);
 }
 
 /* Either page off the screen (OPTIONS has the more lines) */
@@ -710,10 +767,14 @@ static int clamp(int value, int least, int most)
    (pay_and_join: a player who joins later takes them too) */
 static void give_game_credits(void)
 {
-	if (console_window_settings.continues < 0)
+	int continues = console_window_settings.continues;
+	bool wide = false;
+
+	(void)console_lan_settings(&continues, &wide);    /* (a LAN game's: the host's) */
+	if (continues < 0)
 		return;
 	free_play = 0u;
-	p1_credits = (uint8_t)(credits_per_start + (uint32_t)console_window_settings.continues);
+	p1_credits = (uint8_t)(credits_per_start + (uint32_t)continues);
 }
 
 /* Out of a game: free play again (the console has no coins) and no credits left over */
@@ -751,7 +812,15 @@ static void change_option(int option, int step)
 		console_window_settings.changed = true;
 		break;
 	case OPTION_WIDE:
-		console_window_settings.wide = !console_window_settings.wide;
+		/* OFF, 16:10, 16:9, round */
+		for (pixels = 0; pixels < CONSOLE_WIDE_KINDS; pixels++)
+			if (wide_order[pixels] == console_window_settings.wide)
+				break;
+		console_window_settings.wide = wide_order[(pixels + step + CONSOLE_WIDE_KINDS) % CONSOLE_WIDE_KINDS];
+		console_window_settings.changed = true;
+		break;
+	case OPTION_VSYNC:
+		console_window_settings.vsync = !console_window_settings.vsync;
 		console_window_settings.changed = true;
 		break;
 	case OPTION_PIXELS:
@@ -848,10 +917,333 @@ void system_mode_idle(void)
 		build_options_page();
 	}
 	OBJECT(options_backdrop)->ranking_display.hold_timer = 0;
-	if (times_open)
+	if (lan_open)
+		run_lan();
+	else if (times_open)
 		run_times();
 	else
 		run_options();
+}
+
+/* ---- MULTIPLAYER: the LAN game's pages (lan.c), in OPTIONS' place over its faces ---- */
+
+/* MULTIPLAYER: HOST, JOIN, NAME, BACK; what went wrong last under them. NAME: up and down change the letter,
+   left and right go to the one beside it, accept keeps the name, back leaves it as it was (TMNT's, OutRunners').
+   JOIN: the rooms found, one picked; the room: its devices, the host's START (two or three devices: the cabinet's
+   three players) and LEAVE. HOST or JOIN with no name yet asks for it first (TMNT's: Sebas, "que pueda poner
+   nombre el usuario que se conecta") */
+enum { LAN_MAIN, LAN_NAME, LAN_ROOMS, LAN_ROOM };
+enum { LAN_HOST, LAN_JOIN, LAN_NAME_LINE, LAN_BACK, LAN_ITEMS };
+static const char *const lan_items[LAN_ITEMS] = { "HOST", "JOIN", "NAME", "BACK" };
+static const char name_letters[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-";
+
+#define LAN_TITLE_ROW       4u
+#define LAN_FIRST_ROW       8u      /* MULTIPLAYER's lines a line every two rows; the rooms' and devices' every row */
+#define LAN_COLUMN          8u
+#define LAN_VALUE_COLUMN    20u
+#define LAN_PROBLEM_ROW     20u
+#define LAN_NAME_ROW        12u
+#define LAN_HINT_ROW        18u
+#define LAN_START_ROW       18u     /* the room's START (or THE HOST STARTS), */
+#define LAN_LEAVE_ROW       20u     /* its LEAVE, */
+#define LAN_ROOM_PROBLEM    24u     /* and what went wrong */
+#define LAN_ROWS_LAST       27u
+#define LAN_ROOMS_SHOWN     8       /* (arcade-lan's LAN_ROOMS: the rooms a search keeps) */
+
+static int lan_page;
+static int lan_choice, lan_travel, lan_wait, lan_x_travel, lan_x_wait;
+static char name_edit[CONSOLE_NAME_LENGTH + 1];    /* NAME: the name being written */
+static int name_at;
+static int name_then = -1;    /* (HOST or JOIN, asked with no name yet: what NAME goes on to once kept; -1 none) */
+static uint32_t lan_blink;
+
+static void erase_lan_page(void)
+{
+	uint32_t row;
+
+	for (row = LAN_TITLE_ROW; row <= LAN_ROWS_LAST; row++)
+		erase_line(row);
+}
+
+static void show_lan_page(int page, int choice)
+{
+	erase_lan_page();
+	lan_page = page;
+	lan_choice = choice;
+	lan_travel = lan_x_travel = 0;
+	lan_wait = lan_x_wait = MENU_PAUSE;
+}
+
+static void open_lan_pages(void)
+{
+	menu_open = false;
+	options_open = false;
+	lan_open = true;
+	name_then = -1;
+	show_lan_page(LAN_MAIN, LAN_HOST);
+	system_mode = MODE_OPTIONS;
+	system_mode_step = 0u;
+}
+
+/* Back to the title and its menu, on MULTIPLAYER; out of any room */
+static void close_lan_pages(void)
+{
+	console_lan_leave();
+	erase_lan_page();
+	lan_open = false;
+	menu_after_title = true;
+	menu_after_choice = MENU_MULTIPLAYER;
+	attract_step = 0u;
+	system_mode = MODE_TITLE;
+	system_mode_step = 0u;
+}
+
+static const char *own_name(void)
+{
+	return console_window_settings.name[0] ? console_window_settings.name : CONSOLE_DEFAULT_NAME;
+}
+
+/* HOST: a room of its own; JOIN: the rooms looked for */
+static void host_or_join(int item)
+{
+	if (item == LAN_HOST)
+	{
+		show_lan_page(console_lan_host() ? LAN_ROOM : LAN_MAIN, console_lan_hosting() ? 0 : LAN_HOST);
+		return;
+	}
+	console_lan_search();
+	show_lan_page(console_lan_searching() ? LAN_ROOMS : LAN_MAIN, console_lan_searching() ? 0 : LAN_JOIN);
+}
+
+/* NAME, its letters the name kept (blank when none yet), 'then' HOST or JOIN once kept (-1: MULTIPLAYER) */
+static void open_name(int then)
+{
+	int at;
+
+	for (at = 0; at < CONSOLE_NAME_LENGTH; at++)
+		name_edit[at] = at < (int)strlen(console_window_settings.name) ? console_window_settings.name[at] : ' ';
+	name_edit[CONSOLE_NAME_LENGTH] = '\0';
+	name_at = 0;
+	name_then = then;
+	show_lan_page(LAN_NAME, 0);
+}
+
+static int letter_of(char letter)
+{
+	int index;
+
+	for (index = 0; name_letters[index]; index++)
+		if (name_letters[index] == letter)
+			return index;
+	return 0;
+}
+
+/* A line every two rows from the first, the chosen one yellow; a value after it */
+static void lan_line(int line, const char *text, const char *value)
+{
+	const uint32_t row = LAN_FIRST_ROW + 2u * (uint32_t)line;
+	const uint8_t attribute = line == lan_choice ? MENU_CHOSEN : MENU_TEXT;
+
+	erase_line(row);
+	write_text(LAN_COLUMN, row, text, attribute);
+	if (value)
+		write_text(LAN_VALUE_COLUMN, row, value, attribute);
+}
+
+static void lan_problem_line(uint32_t row)
+{
+	const char *problem = console_lan_problem();
+
+	erase_line(row);
+	if (problem)
+		write_centered(row, problem, MENU_CHOSEN);
+}
+
+static void main_page(int step)
+{
+	lan_choice = (lan_choice + step + LAN_ITEMS) % LAN_ITEMS;
+	if (step != 0 || picked())
+		console_lan_problem_seen();
+	write_centered(LAN_TITLE_ROW, "MULTIPLAYER", MENU_CHOSEN);
+	lan_line(LAN_HOST, lan_items[LAN_HOST], NULL);
+	lan_line(LAN_JOIN, lan_items[LAN_JOIN], NULL);
+	lan_line(LAN_NAME_LINE, lan_items[LAN_NAME_LINE], own_name());
+	lan_line(LAN_BACK, lan_items[LAN_BACK], NULL);
+	lan_problem_line(LAN_PROBLEM_ROW);
+	if ((actions & ACTION_BIT(ACTION_BACK)) != 0u || (picked() && lan_choice == LAN_BACK))
+	{
+		close_lan_pages();
+		return;
+	}
+	if (!picked())
+		return;
+	if (lan_choice == LAN_NAME_LINE)
+		open_name(-1);
+	else if (!console_window_settings.name[0])
+		open_name(lan_choice);    /* (the player's name first, the one the rooms show) */
+	else
+		host_or_join(lan_choice);
+}
+
+static void name_page(int step)
+{
+	const int letters = (int)sizeof(name_letters) - 1;
+	const int across = cursor_step(&lan_x_travel, &lan_x_wait, (int16_t)trackball_1_x, ACTION_LEFT, ACTION_RIGHT);
+	char shown[2] = { 0, 0 };
+	int at;
+
+	if ((actions & ACTION_BIT(ACTION_BACK)) != 0u)
+	{
+		const int then = name_then;
+
+		name_then = -1;
+		show_lan_page(LAN_MAIN, then >= 0 ? then : LAN_NAME_LINE);
+		return;
+	}
+	if (picked())
+	{
+		const int then = name_then;
+		int length = CONSOLE_NAME_LENGTH;
+
+		while (length > 0 && name_edit[length - 1] == ' ')
+			length--;
+		if (length > 0 || !console_window_settings.name[0])
+		{
+			/* (none written: PLAYER, not asked again) */
+			memcpy(console_window_settings.name, length ? name_edit : CONSOLE_DEFAULT_NAME,
+				(size_t)(length ? length : (int)strlen(CONSOLE_DEFAULT_NAME)));
+			console_window_settings.name[length ? length : (int)strlen(CONSOLE_DEFAULT_NAME)] = '\0';
+			console_window_settings.changed = true;    /* (the port keeps it) */
+			console_lan_name_changed();
+		}
+		name_then = -1;
+		if (then >= 0)
+			host_or_join(then);
+		else
+			show_lan_page(LAN_MAIN, LAN_NAME_LINE);
+		return;
+	}
+	if (step != 0)    /* (up: the next letter; the menus' cursor goes down with +1) */
+		name_edit[name_at] = name_letters[(letter_of(name_edit[name_at]) - step + letters) % letters];
+	name_at = clamp(name_at + across, 0, CONSOLE_NAME_LENGTH - 1);
+	write_centered(LAN_TITLE_ROW, name_then >= 0 ? "YOUR NAME" : "NAME", MENU_CHOSEN);
+	erase_line(LAN_NAME_ROW);
+	erase_line(LAN_NAME_ROW + 1u);
+	for (at = 0; at < CONSOLE_NAME_LENGTH; at++)
+	{
+		const uint32_t column = 20u - CONSOLE_NAME_LENGTH / 2u + (uint32_t)at;
+
+		shown[0] = name_edit[at];
+		write_text(column, LAN_NAME_ROW, shown, at == name_at ? MENU_CHOSEN : MENU_TEXT);
+		write_text(column, LAN_NAME_ROW + 1u, at == name_at ? "-" : " ", MENU_CHOSEN);
+	}
+	write_centered(LAN_HINT_ROW, "UP DOWN: LETTER", MENU_TEXT);
+	write_centered(LAN_HINT_ROW + 2u, "ACCEPT: OK", MENU_TEXT);
+}
+
+static void rooms_page(int step)
+{
+	const int rooms = console_lan_room_count();
+	char text[40];
+	int room;
+
+	if (!console_lan_searching())
+	{
+		show_lan_page(LAN_MAIN, LAN_JOIN);
+		return;
+	}
+	lan_choice = (lan_choice + step + rooms + 1) % (rooms + 1);    /* (the rooms, then BACK) */
+	write_centered(LAN_TITLE_ROW, "JOIN", MENU_CHOSEN);
+	for (room = 0; room < LAN_ROOMS_SHOWN; room++)
+	{
+		erase_line(LAN_FIRST_ROW + (uint32_t)room);
+		if (room < rooms)
+		{
+			console_lan_room_text(room, text, sizeof(text));
+			write_text(LAN_COLUMN, LAN_FIRST_ROW + (uint32_t)room, text, room == lan_choice ? MENU_CHOSEN : MENU_TEXT);
+		}
+	}
+	erase_line(LAN_FIRST_ROW + (uint32_t)LAN_ROOMS_SHOWN);
+	write_text(LAN_COLUMN, LAN_FIRST_ROW + (uint32_t)rooms, "BACK", lan_choice == rooms ? MENU_CHOSEN : MENU_TEXT);
+	erase_line(LAN_PROBLEM_ROW);
+	if (rooms == 0 && (lan_blink & 32u) == 0u)
+		write_centered(LAN_PROBLEM_ROW, "LOOKING FOR ROOMS", MENU_TEXT);
+	if ((actions & ACTION_BIT(ACTION_BACK)) != 0u || (picked() && lan_choice >= rooms))
+	{
+		console_lan_leave();
+		show_lan_page(LAN_MAIN, LAN_JOIN);
+		return;
+	}
+	if (picked() && console_lan_join(lan_choice))
+		show_lan_page(LAN_ROOM, 0);
+}
+
+static void room_page(int step)
+{
+	const bool host = console_lan_hosting();
+	const int members = console_lan_member_count();
+	char text[40];
+	int index;
+
+	if (console_lan_reset_wanted())
+		return;    /* (its game started: the board reset at this frame's end) */
+	if (!console_lan_in_room())
+	{
+		show_lan_page(LAN_MAIN, LAN_HOST);
+		return;
+	}
+	lan_choice = host ? (lan_choice + step + 2) % 2 : 1;    /* (START and LEAVE; a guest's LEAVE alone) */
+	write_centered(LAN_TITLE_ROW, console_lan_joining() ? "JOINING" : "ROOM", MENU_CHOSEN);
+	for (index = 0; index < 4; index++)
+	{
+		erase_line(LAN_FIRST_ROW + 2u * (uint32_t)index);
+		if (index < members)
+		{
+			console_lan_member_text(index, text, sizeof(text));
+			write_text(LAN_COLUMN, LAN_FIRST_ROW + 2u * (uint32_t)index, text, MENU_TEXT);
+		}
+	}
+	erase_line(LAN_START_ROW);
+	if (host)
+		write_centered(LAN_START_ROW, console_lan_can_start() ? "START" : "START: 2 OR 3 PLAYERS",
+			lan_choice == 0 ? MENU_CHOSEN : MENU_TEXT);
+	else if ((lan_blink & 32u) == 0u)
+		write_centered(LAN_START_ROW, "THE HOST STARTS", MENU_TEXT);
+	erase_line(LAN_LEAVE_ROW);
+	write_centered(LAN_LEAVE_ROW, "LEAVE", lan_choice == 1 ? MENU_CHOSEN : MENU_TEXT);
+	lan_problem_line(LAN_ROOM_PROBLEM);
+	if ((actions & ACTION_BIT(ACTION_BACK)) != 0u || (picked() && lan_choice == 1))
+	{
+		console_lan_leave();
+		show_lan_page(LAN_MAIN, host ? LAN_HOST : LAN_JOIN);
+		return;
+	}
+	if (picked() && host && lan_choice == 0 && console_lan_can_start())
+		console_lan_start();
+}
+
+/* A frame of the MULTIPLAYER pages: the network's datagrams (and a game's start), then the page shown */
+static void run_lan(void)
+{
+	const int step = cursor_step(&lan_travel, &lan_wait, (int16_t)trackball_1_y, ACTION_UP, ACTION_DOWN);
+
+	lan_blink++;
+	console_lan_update();
+	switch (lan_page)
+	{
+	case LAN_NAME:
+		name_page(step);
+		break;
+	case LAN_ROOMS:
+		rooms_page(step);
+		break;
+	case LAN_ROOM:
+		room_page(step);
+		break;
+	default:
+		main_page(step);
+		break;
+	}
 }
 
 /* ---- OPTIONS' backdrop held still: the port's screen where the picture is not ---- */
@@ -1644,6 +2036,7 @@ static void leave_map(void)
 	}
 	time_attack = false;    /* (TIME ATTACK's map: back to the title and its menu) */
 	menu_after_title = true;
+	menu_after_choice = MENU_TIME_ATTACK;
 	attract_step = 0u;
 	system_mode = MODE_TITLE;
 	system_mode_step = 0u;
@@ -2263,13 +2656,23 @@ static bool stage_drawn(void)
 			|| system_mode == MODE_DEMO_2);
 }
 
+/* WIDE, as this game plays it: a LAN game's the host's (the game draws the same wider frame, whose tiles it loads
+   as the camera goes, on every device; each window shows its own part of it), else OPTIONS' */
+static bool wide_on(void)
+{
+	int continues = 0;
+	bool wide = false;
+
+	return console_lan_settings(&continues, &wide) ? wide : console_window_settings.wide != CONSOLE_WIDE_OFF;
+}
+
 /* A stage's map on screen, wider, its sides drawn their own way: a stage drawn but the test corridor (the how
    to play's, player select's), the ending and stage 0, the cage room's switch scene (the tower's platform
    in the sky, the fall by the waterfall): its camera is the scene's, not the stage's sections, and the map
    holds its sides as they go on, the tower whole */
 static bool stage_map_shown(void)
 {
-	return console_window_settings.wide && stage_drawn() && stage < 0x11u && stage != 7u && stage != 0u;
+	return wide_on() && stage_drawn() && stage < 0x11u && stage != 7u && stage != 0u;
 }
 
 #define VIDEO_PAGES        128
@@ -2741,6 +3144,7 @@ static void close_times(void)
 	last_run_frames = 0u;
 	new_record = false;
 	menu_after_title = true;
+	menu_after_choice = MENU_TIME_ATTACK;
 	attract_step = 0u;
 	system_mode = MODE_TITLE;
 	system_mode_step = 0u;
@@ -3397,8 +3801,8 @@ void console_back(void)
 		close_times();
 		return;
 	}
-	if (controls_open || trackball_open)
-		return;    /* (CONTROLS and TRACKBALL read the action back themselves) */
+	if (controls_open || trackball_open || lan_open)
+		return;    /* (CONTROLS, TRACKBALL and MULTIPLAYER read the action back themselves) */
 	if (options_open && video_open)
 	{
 		close_video();
@@ -3456,7 +3860,7 @@ bool console_wide_now(void)
 	/* a stage drawn (stage_drawn); the how to play (its panel goes on at the sides: wide_how_to_play), the
 	   SEGA logo and the title (their sky and sea go on), the ranking, OPTIONS and player select (their
 	   faces) */
-	return console_window_settings.wide
+	return wide_on()
 		&& (stage_drawn()
 			|| (system_mode == MODE_GAME && (int8_t)game_in_progress < 0 && (game_mode == 1u || game_mode == 0x1Bu))
 			|| system_mode == MODE_TITLE || system_mode == MODE_RANKING || system_mode == MODE_OPTIONS);
@@ -3523,3 +3927,81 @@ bool console_quit_requested(void)
 }
 
 
+
+/* ---- MULTIPLAYER's game: what the port shows of it, and the console as at power-on ---- */
+
+static uint16_t waiting_saved[40];
+
+/* "WAITING FOR name" in yellow on PAUSE's row (shown: the cells it covers kept), or those cells back as they were:
+   the port draws the frame again with it while the game holds, then puts the cells back, so that the board's state
+   is the same on every device */
+void console_lan_waiting_text(bool shown)
+{
+	uint32_t column;
+	const char *name = console_lan_waiting();
+	char text[40];
+
+	if (!shown)
+	{
+		for (column = 0; column < 40u; column++)
+			mem_write16(TEXT_CELL(column, PAUSE_ROW), waiting_saved[column]);
+		return;
+	}
+	for (column = 0; column < 40u; column++)
+		waiting_saved[column] = mem_read16(TEXT_CELL(column, PAUSE_ROW));
+	strcpy(text, "WAITING FOR ");
+	strncat(text, name ? name : "THE OTHERS", sizeof(text) - strlen(text) - 1u);
+	write_centered(PAUSE_ROW, text, MENU_CHOSEN);
+}
+
+/* The console's own state as at power-on, for a LAN game's start and end (lan.c): every page and menu closed, no
+   TIME ATTACK nor STAGE SELECT, player select's choosers still; the SEGA logo is not shown again, and the levels
+   this session cleared stay in the map's colours. Every device of a LAN game starts its game from this */
+void console_power_on(void)
+{
+	title_frames = 0u;
+	sega_logo_shown = true;
+	title_music_started = false;
+	menu_open = options_open = menu_after_title = menu_opening = false;
+	menu_after_choice = MENU_OPTIONS;
+	menu_choice = menu_travel = menu_wait = 0;
+	quit_requested = game_sees_start = false;
+	actions = actions_held = 0u;
+	time_attack = times_open = times_pending = clock_running = false;
+	time_attack_players = 0u;
+	time_attack_level = -1;
+	jingle_frame = -1;
+	video_open = game_settings_changed = false;
+	option_choice = option_travel = option_wait = value_travel = value_wait = 0;
+	stage_select_pending = false;
+	stage_select_phase = 0;
+	stage_select_stage = 0u;
+	options_backdrop = 0u;
+	controls_open = controls_defaults_asked = false;
+	controls_choice = controls_player = 0;
+	controls_waiting = -1;
+	memset(start_prompt_frames, 0, sizeof(start_prompt_frames));
+	trackball_open = trackball_trying = false;
+	trackball_choice = 0;
+	level_in_play = -1;
+	map_open = false;
+	map_step = map_choice = map_travel_x = map_wait_x = map_travel_y = map_wait_y = 0;
+	map_blink = 0u;
+	debug_section_step = debug_section_frames = 0;
+	clock_frames = 0u;
+	new_record = shown_whole = false;
+	shown_level = -1;
+	last_run_frames = 0u;
+	memset(run_splits, 0, sizeof(run_splits));
+	run_level = 0;
+	times_blink = 0u;
+	panel_sides_shown = false;
+	memset(chooser_rolling, 0, sizeof(chooser_rolling));
+	memset(join_chooser_rolling, 0, sizeof(join_chooser_rolling));
+#ifdef SEGASONIC_PAUSE_EXIT
+	pause_choice = 0;
+#endif
+	lan_open = false;
+	name_then = -1;
+	lan_blink = 0u;
+}

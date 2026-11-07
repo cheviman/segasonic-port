@@ -1,0 +1,44 @@
+// Name:        version.rc.in
+// Description: a Windows executable's resources, which CMakeLists.txt writes for each one
+//              (segasonic_windows_resource): the games' icon (tools/make_icon.py) and the version information
+//              Windows shows in the file's Properties > Details
+// Version:     0.1.0
+// Created:     07-11-2026
+// Modified:    07-11-2026
+// Author:      Sebastian Toyos
+//
+// An executable without version information, unsigned, is what antivirus heuristics take for a suspect one
+// (VirusTotal's MaxSecure on v1.3.1's games): it says whose it is and what it is.
+#include <winver.h>
+
+@SEGASONIC_RC_ICON@
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		BLOCK "040904B0"
+		BEGIN
+			VALUE "CompanyName", "cheviman"
+			VALUE "FileDescription", "@SEGASONIC_RC_DESCRIPTION@"
+			VALUE "FileVersion", "@PROJECT_VERSION@"
+			VALUE "InternalName", "@SEGASONIC_RC_FILE@"
+			VALUE "LegalCopyright", "The port: (C) 2026 Sebastian Toyos, BSD-3-Clause. SegaSonic The Hedgehog: (C) SEGA 1992"
+			VALUE "OriginalFilename", "@SEGASONIC_RC_FILE@"
+			VALUE "ProductName", "SegaSonic The Hedgehog (segasonic-port)"
+			VALUE "ProductVersion", "@PROJECT_VERSION@"
+			VALUE "Comments", "https://github.com/cheviman/segasonic-port"
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x409, 1200
+	END
+END

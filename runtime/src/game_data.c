@@ -3,7 +3,7 @@
  *    Description: loads the game's assets pack into the board's memory (game/data.h)
  *    Version:     0.1.0
  *    Created:     20-10-2026
- *    Modified:    25-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -14,6 +14,7 @@
 #include "game/data.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define PACK_VERSION   1u
@@ -21,28 +22,65 @@
 #define KIND_FILL      1u
 #define REGIONS        4u
 
-uint8_t game_program[GAME_PROGRAM_SIZE];
-uint8_t game_tiles[GAME_TILES_SIZE];
-uint8_t game_sprites[GAME_SPRITES_SIZE];
-uint8_t game_sound[GAME_SOUND_SIZE];
+#define REGION_PROGRAM 0u
+#define REGION_SOUND   3u
 
-static uint8_t *const regions[REGIONS] = { game_program, game_tiles, game_sprites, game_sound };
+uint8_t *game_program;
+uint8_t *game_tiles;
+uint8_t *game_sprites;
+uint8_t *game_sound;
+
+static uint8_t *regions[REGIONS];
 static const uint32_t region_sizes[REGIONS] = { GAME_PROGRAM_SIZE, GAME_TILES_SIZE, GAME_SPRITES_SIZE, GAME_SOUND_SIZE };
+
+int game_data_regions(void)
+{
+	size_t region;
+
+	if (regions[0])
+		return 1;
+	for (region = 0; region < REGIONS; region++)
+		if ((regions[region] = (uint8_t *)calloc(region_sizes[region], 1)) == NULL)
+		{
+			while (region > 0)
+			{
+				region--;
+				free(regions[region]);
+				regions[region] = NULL;
+			}
+			return 0;
+		}
+	game_program = regions[0];
+	game_tiles = regions[1];
+	game_sprites = regions[2];
+	game_sound = regions[3];
+	return 1;
+}
+
+uint8_t *game_data_region(unsigned region)
+{
+	return region < REGIONS ? regions[region] : NULL;
+}
+
+uint32_t game_data_region_size(unsigned region)
+{
+	return region < REGIONS ? region_sizes[region] : 0u;
+}
 
 /* The chips the board decodes more than once (MAME's ROM_START( sonic )): the region, where the chip's
    bytes are, how many, and where they show again */
 typedef struct
 {
-	uint8_t *region;
+	unsigned region;
 	uint32_t from, size;
 	uint32_t to[3];
 } chip_mirror;
 
 static const chip_mirror mirrors[] = {
-	{ game_program, 0x000000u, 0x020000u, { 0x020000u, 0x040000u, 0x060000u } },    /* epr-15787c, x4 */
-	{ game_program, 0x080000u, 0x020000u, { 0x0A0000u, 0x0C0000u, 0x0E0000u } },    /* epr-15786c, x4 */
-	{ game_program, 0x100000u, 0x080000u, { 0x180000u } },                          /* the data chips, x2 */
-	{ game_sound, 0x000000u, 0x040000u, { 0x040000u, 0x080000u, 0x0C0000u } },      /* epr-15785, x4 */
+	{ REGION_PROGRAM, 0x000000u, 0x020000u, { 0x020000u, 0x040000u, 0x060000u } },    /* epr-15787c, x4 */
+	{ REGION_PROGRAM, 0x080000u, 0x020000u, { 0x0A0000u, 0x0C0000u, 0x0E0000u } },    /* epr-15786c, x4 */
+	{ REGION_PROGRAM, 0x100000u, 0x080000u, { 0x180000u } },                          /* the data chips, x2 */
+	{ REGION_SOUND, 0x000000u, 0x040000u, { 0x040000u, 0x080000u, 0x0C0000u } },      /* epr-15785, x4 */
 };
 
 static uint32_t little16(const uint8_t *bytes)
@@ -59,10 +97,12 @@ void game_data_mirror(void)
 {
 	size_t mirror, copy;
 
+	if (!regions[0])
+		return;    /* (no regions taken yet: nothing to mirror) */
 	for (mirror = 0; mirror < sizeof(mirrors) / sizeof(mirrors[0]); mirror++)
 		for (copy = 0; copy < 3 && mirrors[mirror].to[copy] != 0u; copy++)
-			memcpy(mirrors[mirror].region + mirrors[mirror].to[copy], mirrors[mirror].region + mirrors[mirror].from,
-				mirrors[mirror].size);
+			memcpy(regions[mirrors[mirror].region] + mirrors[mirror].to[copy],
+				regions[mirrors[mirror].region] + mirrors[mirror].from, mirrors[mirror].size);
 }
 
 /* The entries of the pack at 'input', each where it goes; false when the pack is cut short or one is out
@@ -103,6 +143,8 @@ game_data_result game_data_read(FILE *input)
 	uint8_t head[12];
 	size_t region;
 
+	if (!game_data_regions())
+		return GAME_DATA_DAMAGED;    /* (no memory for them: as good as a pack that cannot be read) */
 	for (region = 0; region < REGIONS; region++)
 		memset(regions[region], 0, region_sizes[region]);
 	if (fread(head, 1, sizeof(head), input) != sizeof(head) || memcmp(head, "SSAP", 4) != 0

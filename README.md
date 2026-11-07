@@ -12,13 +12,14 @@ runs, it takes its graphics, sound and data out of your MAME `sonic.zip` and nev
 executable carries the ROM or anything from it.
 
 <p align="center">
-  <img src="docs/screenshots/title_menu.png" width="32%" alt="The title and its menu: START GAME, TIME ATTACK, OPTIONS, EXIT">
+  <img src="docs/screenshots/title_menu.png" width="32%" alt="The title and its menu: START GAME, TIME ATTACK, MULTIPLAYER, OPTIONS, EXIT">
   <img src="docs/screenshots/volcanic_vault.png" width="32%" alt="Sonic, Ray and Mighty in Volcanic Vault, in 16:9">
   <img src="docs/screenshots/ice_caption.png" width="32%" alt="Eggman's line in English in the ice level: Try to get through this!">
   <img src="docs/screenshots/trap_tower.png" width="32%" alt="Three players in Trap Tower: You'll never escape!">
   <img src="docs/screenshots/options.png" width="32%" alt="The OPTIONS page over the drifting Sonic faces">
   <img src="docs/screenshots/trackball.png" width="32%" alt="TRACKBALL: Sonic walking on the how to play's floor under the settings">
   <img src="docs/screenshots/stage_select.png" width="32%" alt="STAGE SELECT on the island map, Trap Tower chosen">
+  <img src="docs/screenshots/multiplayer.png" width="32%" alt="MULTIPLAYER: HOST, JOIN, NAME, BACK">
 </p>
 <p align="center"><sub>The console version with WIDE on, as its window shows it
 (<code>tools/make_screenshots.py</code> makes them from scripted runs).</sub></p>
@@ -61,25 +62,37 @@ one to share.
 (`console/`); the arcade game underneath runs as it does on the board.
 
 - **No coins.** Power-on goes to the SEGA logo (with a jingle of its own) and the title: PRESS START opens
-  a menu, START GAME, TIME ATTACK, OPTIONS, EXIT. A game has CONTINUES (3 at first) instead of credits, or
-  plays free.
+  a menu, START GAME, TIME ATTACK, MULTIPLAYER, OPTIONS, EXIT. A game has CONTINUES (3 at first) instead of
+  credits, or plays free.
 - **Up to three players**, as the arcade's 3-player cabinet: each with their own keys and game controller.
   A player joins at player select, or whenever their start prompt is up.
-- **WIDE** (OPTIONS → VIDEO): a 16:9 picture. The stages, the title, the ranking and player select are drawn
-  wider; past where the board's camera ever looks, the stage's map goes on as its rows and walls do. The
-  scenes, drawn for 4:3, show between bars.
+- **MULTIPLAYER**: the same game on up to three devices of the local network, a player each (computers,
+  phones, a Switch, a handheld: any of them together). One picks HOST, the others JOIN and pick its room;
+  NAME is the name the room shows. The host's START begins the game on every device at once, with the host's
+  DIFFICULTY, VITALITY, CONTINUES and WIDE; the players join at player select with START, as at a cabinet.
+  Every device runs the same frames with every player's controls
+  ([arcade-lan](https://github.com/cheviman/arcade-lan), in lockstep), so a slow network shows as the game
+  holding (WAITING FOR its name), never as the games parting. Back leaves the game (the others play on);
+  the game over brings everyone back to MULTIPLAYER. The devices have to be the same version.
+- **WIDE** (OPTIONS → VIDEO): a 16:9 or 16:10 picture (16:10 fills the Steam Deck's screen). The stages,
+  the title, the ranking and player select are drawn wider; past where the board's camera ever looks, the
+  stage's map goes on as its rows and walls do. The scenes, drawn for 4:3, show between bars.
+- **VSYNC** (OPTIONS → VIDEO, on at first): each frame at the screen's refresh, with no tearing; the game
+  keeps its own pace, a frame a frame late left out.
 - **Around the picture**, where it leaves the screen (full screen, the scenes between bars, the room under it
   on an open foldable): OPTIONS' Sonic heads standing still, not black.
 - **OPTIONS**: DIFFICULTY and VITALITY (the operator's settings), CONTINUES, VIDEO (WINDOW size, FULL
-  SCREEN, PIXELS: sharp, smooth, soft or a CRT's scanlines and mask, WIDE), CONTROLS, TRACKBALL, VOLUME,
-  SOUND TEST (the song picked becomes the title's music) and STAGE SELECT.
+  SCREEN, PIXELS: sharp, smooth, soft or a CRT's scanlines and mask, WIDE, VSYNC), CONTROLS, TRACKBALL,
+  VOLUME, SOUND TEST (the song picked becomes the title's music) and STAGE SELECT; the version at the
+  bottom right.
 - **TIME ATTACK**: a level, or the whole game from Eggman's place on the map. The clock runs through stages,
   scenes and continues, with a split at the end of each level; BEST TIMES and BEST RUN keep the records.
 - **STAGE SELECT**: the island map with every level open; the levels cleared in this session's games show
   in the map's cleared colours.
 - **In English**: the how to play and Eggman's lines are in the game's own English text boxes, which its
   program never shows (the Japanese board shows Japanese ones).
-- **Pause**: start (or back) in a stage pauses the game and its scripted scenes.
+- **Pause**: start (or back) in a stage pauses the game and its scripted scenes (not in a MULTIPLAYER game,
+  which every device plays at once: there back leaves it).
 - **CONTROLS**: every action's keys and game controller button, for each player, on screen with Kenney's
   Input Prompts.
 - **TRACKBALL** (Windows, macOS and Linux): how far the stick, the keys and the pad's cross and the mouse
@@ -119,10 +132,12 @@ mouse's ball rolls on when the mouse stops, F5 and F6 the mouse slower or faster
 TRACKBALL shows them, and Sonic moving by them).
 
 Game controllers, in both versions: the ones SDL knows (Xbox, PlayStation, Switch and many more) work as
-they are. Another one, such as a generic USB pad, needs its mapping in `gamecontrollerdb.txt` where the
-game keeps its files (below): the lines of [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB),
-or the line a gamepad tool makes for it. The game reads the file when it starts. Steam Input also works,
-as Steam shows the game an Xbox controller.
+they are, and so do the ones of [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB), the
+community's mappings, which the games carry (on the computers and Android). Another one, or one mapped
+wrong, takes its line in `gamecontrollerdb.txt` where the game keeps its files (below): the line a gamepad
+tool makes for it, which goes over the game's own. The game reads the file when it starts. A TV's remote
+(Android TV's) never takes player 1 from a game controller. Steam Input also works, as Steam shows the
+game an Xbox controller.
 
 ### The arcade version: SegaSonic Arcade
 
@@ -149,11 +164,11 @@ Support/SegaSonic` on macOS:
 | File | What it holds |
 |---|---|
 | `segasonic.assets` | the assets pack the first run made from your ROM set |
-| `segasonic.ini`, `sonic.ini` | SegaSonic's and SegaSonic Arcade's window settings, with what each one does (the game reads the file again whenever it is saved while it runs) |
+| `segasonic.ini`, `sonic.ini` | SegaSonic's and SegaSonic Arcade's window settings, with what each one does, and MULTIPLAYER's NAME (the game reads the file again whenever it is saved while it runs) |
 | `controls.ini` | the console version's keys and buttons, a section a player |
 | `segasonic.times` | TIME ATTACK's best times and best run |
 | `segasonic.eeprom`, `sonic.eeprom` | each one's game settings and bookkeeping, as the board's EEPROM keeps them |
-| `gamecontrollerdb.txt` | yours to add: the mappings of game controllers SDL does not know (on Linux and macOS it may also go beside the executable) |
+| `gamecontrollerdb.txt` | yours to add: the mappings of game controllers the game does not know, or knows wrong (on Linux and macOS it may also go beside the executable) |
 
 ### Nintendo Switch
 
@@ -198,11 +213,12 @@ on Windows, `~/.config/SegaSonic` on Linux, `~/Library/Application Support/SegaS
 Android installs a new APK over the last one, keeping your settings and records, only when both have the same
 key.
 
-On the phone the picture is 16:9; on an open foldable, the game's own 4:3 picture at the top, larger, with the
-touch controls under it. The touch screen has its controls: a stick where your left thumb lands, A to
+On the phone the picture is 16:9 (16:10 on a tablet's screen); on an open foldable, the game's own 4:3 picture
+at the top, larger, with the touch controls under it. The touch screen has its controls: a stick where your left thumb lands, A to
 jump and pick, START to start and pause; a Bluetooth or USB game controller works too (the d-pad or the left
 stick, A, B back in the menus, Start), and the touch controls hide while it is used. Android's back goes back
-in the menus. The pause has CONTINUE and EXIT. More in [ports/android/README.md](ports/android/README.md).
+in the menus and goes on from the pause, which has CONTINUE and EXIT. More in
+[ports/android/README.md](ports/android/README.md).
 
 ### Anbernic handhelds
 
@@ -228,6 +244,10 @@ Clang elsewhere), Python 3.10 or newer, and SDL2: on Windows `SDL2-devel-2.x.x-V
 `SDL2_DIR` pointed at it), on Linux the system's (`libsdl2-dev`), on macOS Homebrew's (`sdl2`). With
 `-DSEGASONIC_STATIC_SDL2=ON` the build takes SDL2's source instead and builds it into the executables, as
 the downloads are.
+
+MULTIPLAYER needs [arcade-lan](https://github.com/cheviman/arcade-lan), the submodule `lan/`: clone with
+`git clone --recursive`, or `git submodule update --init` in a clone (without it the game builds, and
+MULTIPLAYER says NO NETWORK).
 
 1. Put your MAME `sonic.zip`, or the files inside it, in `rom/`, and check it:
 
@@ -271,7 +291,9 @@ The console version changes the game only where `console/replaced.txt` says: its
 functions, in `console/`, while the arcade build keeps the originals. It runs the same on every system,
 frame by frame: `segasonic_console_headless --actions` drives its menus as the window's keys do, and
 `python tools/make_screenshots.py` remakes the pictures at the top of this page from such runs, and
-`--check` says whether they are still those.
+`--check` says whether they are still those. MULTIPLAYER's game is checked the same way, with two of them on
+one computer: one HOSTs and the other JOINs by their `--actions`, at 60 frames a second (`--pace`), each with
+its `--lan-name`, and the states' hashes they write each frame (`--lan-hashes`) are the same on both.
 
 The game devices draw the board's video on several threads, a band of rows each
 (`runtime/src/workers.c`): the frames are the same, which the scenarios show with the threads on
@@ -287,7 +309,8 @@ and comes here by merge:
 
 ```
 console/                the console version: what it changes in the game (replaced.txt) and how
-                        (console.c), and what is next (PLAN.md)
+                        (console.c), MULTIPLAYER's game (lan.c), and what is next (PLAN.md)
+lan/                    arcade-lan (a submodule): the rooms and the game in lockstep on the local network
 ports/sdl2/             the window: the picture, sound and controls on SDL2, the settings, the first run
                         (first_run.c), the console's actions and their keys (actions.c, controls.ini),
                         the pictures of Kenney's (prompts/, font/), the executables' icon (icon/,
@@ -308,6 +331,8 @@ tools/make_screenshots.py  the screenshots above
 ## Credits
 
 - The game: *SegaSonic The Hedgehog*, SEGA, 1993.
+- [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB): the game controllers' mappings
+  the games carry (`ports/sdl2/controllerdb/`, zlib License).
 - [Kenney](https://kenney.nl): Input Prompts Pixel, the keys and buttons of CONTROLS
   (`ports/sdl2/prompts/`), and Kenney Mini (Kenney Fonts), the letters of the first run's window
   (`ports/sdl2/font/`); both CC0.

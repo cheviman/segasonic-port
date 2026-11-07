@@ -3,7 +3,7 @@
  *    Description: runs the decompiled sound program on the board's time: the Z80's timing model
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    15-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -171,6 +171,16 @@ static void on_sound_reset(bool held)
 		z80.after_ei = false;
 	}
 	z80.held = held;
+}
+
+void sound_cpu_power_on(void)
+{
+	z80.clock = 0;
+	z80.interrupts = false;
+	z80.after_ei = false;
+	z80.line = false;
+	z80.held = true;
+	z80.running = false;
 }
 
 /* Hooks the sound program to the board; s32_board.sound_rom and the chips have to be set */

@@ -3,7 +3,7 @@
  *    Description: the window port's settings, kept in sonic.ini beside the executable
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    13-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -27,12 +27,14 @@ typedef struct port_settings
 	bool smooth;              /* smooth pixels (sharp bilinear), or sharp ones */
 	bool bilinear;            /* plain bilinear pixels, softer (over smooth) */
 	bool crt;                 /* a CRT's look over smooth pixels (over both) */
-	bool wide;                /* the console's 16:9 picture */
+	int wide;                 /* the console's wider picture: 0 off, 1 16:9, 2 16:10 (CONSOLE_WIDE_*) */
+	bool vsync;               /* each frame shown at the screen's refresh */
 	double volume;            /* of the game's sound */
 	double sega_jingle_program;    /* the console's SEGA logo jingle: the sound driver's program (0-36) */
 	double sega_jingle_layer;      /* ... and the layer an octave under it (-1: none) */
 	double title_music;            /* the console's title: the sound id of its song */
 	double continues;              /* the console's games: their continues (-1: free play) */
+	char name[11];                 /* MULTIPLAYER's NAME: this device's player's, as the rooms show it */
 } port_settings;
 
 extern port_settings settings;

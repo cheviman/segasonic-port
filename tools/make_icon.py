@@ -4,13 +4,13 @@ Description: draws the executables' icon (ports/sdl2/icon/): a trackball, the ca
              speed lines on a blue plate; nothing of the game's
 Version:     0.1.0
 Created:     23-10-2026
-Modified:    25-10-2026
+Modified:    07-11-2026
 Author:      Sebastian Toyos
 
 Usage: python tools/make_icon.py
 
-The icon of SegaSonic.exe and SegaSonic Arcade.exe (segasonic.ico, through segasonic.rc), of their .apps on
-macOS (segasonic.icns) and of the Linux package (segasonic.png, 1024 x 1024, for a launcher of the
+The icon of SegaSonic.exe and SegaSonic Arcade.exe (segasonic.ico, in the resources CMakeLists.txt writes
+from ports/sdl2/icon/version.rc.in), of their .apps on macOS (segasonic.icns) and of the Linux package (segasonic.png, 1024 x 1024, for a launcher of the
 desktop's), of the Switch's .nro (ports/switch/icon.jpg, 256 x 256: the plate to the edges, which the
 HOME menu rounds itself) and of the Android app (ports/android/res/mipmap-xxxhdpi: an adaptive icon's two
 layers, the plate to the edges and the trackball in the middle 66 of its 108, which the launcher shapes and

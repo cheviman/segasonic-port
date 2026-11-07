@@ -3,7 +3,7 @@
  *    Description: the game's data in the board's memory, loaded from its assets pack
  *    Version:     0.2.0
  *    Created:     13-10-2026
- *    Modified:    25-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -29,10 +29,20 @@ extern "C" {
 #define GAME_SOUND_SIZE     0x400000     /* the Z80's program space (its data), then three 1 MB banks of
                                             PCM samples */
 
-extern uint8_t game_program[GAME_PROGRAM_SIZE];
-extern uint8_t game_tiles[GAME_TILES_SIZE];
-extern uint8_t game_sprites[GAME_SPRITES_SIZE];
-extern uint8_t game_sound[GAME_SOUND_SIZE];
+/* The regions: 24 MB taken from the heap the first time they are filled (game_data_regions), not in the
+   executable's image, where a section that large and empty on disk looks to some antivirus heuristics like
+   a packed program's (VirusTotal's MaxSecure, "susgen", on v1.3.1's executables). NULL until then */
+extern uint8_t *game_program;
+extern uint8_t *game_tiles;
+extern uint8_t *game_sprites;
+extern uint8_t *game_sound;
+
+/* The regions taken, once (zeroed); false when there is not the memory for them */
+int game_data_regions(void);
+
+/* A region by its number in the pack (0 program, 1 tiles, 2 sprites, 3 sound), and its size */
+uint8_t *game_data_region(unsigned region);
+uint32_t game_data_region_size(unsigned region);
 
 typedef enum
 {

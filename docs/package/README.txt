@@ -4,7 +4,8 @@ https://github.com/cheviman/segasonic-port
 Two games come in this package:
 
   SegaSonic          The console version: play this one. No coins; a menu (START GAME,
-                     TIME ATTACK, OPTIONS, EXIT), up to three players, WIDE 16:9 stages.
+                     TIME ATTACK, MULTIPLAYER, OPTIONS, EXIT), up to three players, WIDE
+                     16:9 or 16:10 stages, VSYNC.
 
   SegaSonic Arcade   The arcade game as the board runs it, coins and all:
                      5 puts a coin in, 1 starts, Escape quits.
@@ -22,6 +23,13 @@ PLAYING SEGASONIC (player 1)
   Back, pause         Escape or Backspace
 Players 2 and 3, game controllers and every key: OPTIONS > CONTROLS.
 F11 or Alt+Enter: full screen.
+
+MULTIPLAYER
+Up to three devices on the same local network, a player each (computers, phones, a Switch,
+a handheld, all of the same version). One picks HOST, the others JOIN and its room; NAME is
+the name the room shows. The host's START begins the game on every device; the others join
+at player select with START. Back (Escape) leaves the game; the others play on. If the
+system asks whether SegaSonic may use the network, allow it on private networks.
 
 THE MOUSE, AND CLOSING THE GAME
 In SegaSonic the mouse is a pointer until you click in the window: from then on it is

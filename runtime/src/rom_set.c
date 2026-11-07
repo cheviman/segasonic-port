@@ -3,7 +3,7 @@
  *    Description: the player's ROM set into the board's memory (game/data.h), from a .zip or a folder
  *    Version:     0.2.0
  *    Created:     20-10-2026
- *    Modified:    20-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -214,9 +214,12 @@ const char *game_rom_set_load(const char *source)
 	static char problem[96];
 	uint8_t *chips[FILES] = { NULL };
 	size_t size = 0;
-	uint8_t *whole = read_whole(source, &size);
+	uint8_t *whole;
 	int file, copy;
 
+	if (!game_data_regions())
+		return "not enough memory";
+	whole = read_whole(source, &size);
 	if (whole)
 	{
 		const int zip = read_zip(whole, size, chips);

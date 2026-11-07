@@ -4,7 +4,7 @@
  *                 picture or under it, and the actions the fingers on them hold
  *    Version:     0.1.0
  *    Created:     25-10-2026
- *    Modified:    31-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -33,7 +33,12 @@
 #define STICK_DIRECTION  0.35    /* a lean that is a direction too, in the ring's radius */
 #define BUTTON_MARGIN    0.03    /* a button takes a finger this far past its edge */
 #define GLYPH_MIDDLE     7       /* font.bmp's capitals: rows 2 to 11 of their 16 */
-#define AREA_ASPECT      2.2     /* the controls' unit: the area's height, or its width over this, the smaller */
+#define AREA_ASPECT      2.2     /* the controls' unit: the area's height, or its width over this, the smaller, */
+#define MOST_UNIT_INCHES 3.5     /* and at most this on the screen: a phone's is under it (about 2.8), a tablet's
+                                    would make them larger than a hand needs (TMNT's 0.35 inch a tenth of its
+                                    height; Sebas: on a Fold they were huge) */
+#define LABEL_HEIGHT     0.4     /* a label's letters: this part of its button's height, */
+#define LABEL_WIDTH      0.8     /* and at most this part of its width (TMNT's ATTACK went past its button) */
 
 typedef struct
 {
@@ -87,6 +92,7 @@ static bool shown;
 static int screen_width = 1, screen_height = 1;    /* the screen, as touch_layout last had it */
 static SDL_Rect area = { 0, 0, 1, 1 };              /* the controls': the screen, or the room under the picture */
 static double unit = 1.0;                           /* their places and sizes, in pixels */
+static double most_unit;                            /* MOST_UNIT_INCHES in the screen's pixels (none known: 0) */
 static const layout *laid = &over_picture;          /* their places there */
 static const button *const buttons = over_picture.buttons;    /* (what each button does: the same in both) */
 static double stick_x, stick_y;                     /* the stick's centre while a finger holds it */
@@ -141,7 +147,10 @@ static SDL_Texture *make_shape(SDL_Renderer *renderer, int width, int height, bo
 void touch_open(SDL_Renderer *renderer, const char *base)
 {
 	const int pill_width = (int)lround(SHAPE_HEIGHT * buttons[BUTTON_START].width / buttons[BUTTON_START].height);
+	float dpi = 0.0f;
 
+	if (SDL_GetDisplayDPI(0, &dpi, NULL, NULL) == 0 && dpi > 0.0f)
+		most_unit = dpi * MOST_UNIT_INCHES;
 	SDL_GetRendererOutputSize(renderer, &screen_width, &screen_height);
 	touch_layout(screen_width, screen_height, 0);
 	disc = make_shape(renderer, SHAPE_HEIGHT, SHAPE_HEIGHT, false);
@@ -162,6 +171,8 @@ void touch_layout(int width, int height, int room)
 	screen_height = height;
 	area = room > 0 ? (SDL_Rect){ 0, height - room, width, room } : (SDL_Rect){ 0, 0, width, height };
 	unit = SDL_min(area.h, area.w / AREA_ASPECT);
+	if (most_unit > 0.0)
+		unit = SDL_min(unit, most_unit);
 	laid = room > 0 ? &under_picture : &over_picture;
 }
 
@@ -362,8 +373,11 @@ void touch_draw(SDL_Renderer *renderer)
 		draw_shape(renderer, round ? ring : pill_ring, x, y, width, height, 255, pressed ? 220 : 150);
 		if (have_font)
 		{
-			const int scale = SDL_max(1, (int)lround(height * 0.4 / LETTERS_CELL));
 			const SDL_Color white = { 255, 255, 255, 255 };
+			int scale = SDL_max(1, (int)lround(height * LABEL_HEIGHT / LETTERS_CELL));
+
+			while (scale > 1 && letters_width(&font, buttons[which].label, scale) > width * LABEL_WIDTH)
+				scale--;
 
 			SDL_SetTextureAlphaMod(font.sheet, pressed ? 255 : 190);
 			letters_draw_at(renderer, &font, buttons[which].label, (int)lround(x),

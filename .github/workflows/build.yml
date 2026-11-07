@@ -8,7 +8,7 @@
 #              release of those packages
 # Version:     0.6.0
 # Created:     20-10-2026
-# Modified:    31-10-2026
+# Modified:    07-11-2026
 # Author:      Sebastian Toyos
 name: build
 
@@ -34,6 +34,8 @@ jobs:
     needs: [switch, android]    # (their games go in the package, beside SegaSonic NSP and SegaSonic APK)
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true    # (lan/: arcade-lan, MULTIPLAYER's)
 
       # SDL2 is built from its source (SEGASONIC_STATIC_SDL2): on Linux it needs the headers of what it
       # talks to (it loads the libraries themselves when the game runs)
@@ -96,6 +98,8 @@ jobs:
           cp tools/reference/ymfm/LICENSE dist/segasonic/licenses/ymfm.txt
           cp build/cmake/_deps/sdl2-src/LICENSE.txt dist/segasonic/licenses/SDL2.txt
           cp ports/sdl2/font/License.txt dist/segasonic/licenses/Kenney-Fonts.txt
+          cp lan/LICENSE dist/segasonic/licenses/arcade-lan.txt
+          cp ports/sdl2/controllerdb/LICENSE dist/segasonic/licenses/SDL_GameControllerDB.txt
           if [ -f ports/sdl2/prompts/License.txt ]; then
             cp ports/sdl2/prompts/License.txt dist/segasonic/licenses/Kenney-Input-Prompts.txt
           fi
@@ -133,6 +137,8 @@ jobs:
     container: devkitpro/devkita64:latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true    # (lan/: arcade-lan, MULTIPLAYER's)
 
       - name: Configure
         run: /opt/devkitpro/portlibs/switch/bin/aarch64-none-elf-cmake -S . -B build/switch -DCMAKE_BUILD_TYPE=Release -DSEGASONIC_REFERENCE_TOOLS=OFF
@@ -152,6 +158,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true    # (lan/: arcade-lan, MULTIPLAYER's)
 
       - name: Tools
         run: |
@@ -184,6 +192,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true    # (lan/: arcade-lan, MULTIPLAYER's)
 
       - name: Tools
         run: |
@@ -213,6 +223,7 @@ jobs:
           cp LICENSE $package/PORTS/segasonic/LICENSE.txt
           cp tools/reference/mame/LICENSE $package/PORTS/segasonic/licenses/MAME.txt
           cp tools/reference/ymfm/LICENSE $package/PORTS/segasonic/licenses/ymfm.txt
+          cp lan/LICENSE $package/PORTS/segasonic/licenses/arcade-lan.txt
           if [ -f ports/sdl2/prompts/License.txt ]; then
             cp ports/sdl2/prompts/License.txt $package/PORTS/segasonic/licenses/Kenney-Input-Prompts.txt
           fi
@@ -235,6 +246,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true    # (lan/: arcade-lan, MULTIPLAYER's)
 
       - uses: actions/download-artifact@v8
         with:

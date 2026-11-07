@@ -3,7 +3,7 @@
  *    Description: what the console build tells the port
  *    Version:     0.1.0
  *    Created:     19-10-2026
- *    Modified:    31-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  */
 #ifndef SEGASONIC_CONSOLE_H
@@ -15,6 +15,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define CONSOLE_NAME_LENGTH   10          /* MULTIPLAYER > NAME: A-Z, 0-9, '.', '-' and spaces (arcade-lan's) */
+#define CONSOLE_DEFAULT_NAME  "PLAYER"
+
 /* The window's settings the console's OPTIONS show and change: the port fills them in (and again when its
    settings change), and applies and saves them when OPTIONS sets 'changed' */
 typedef struct
@@ -24,7 +27,9 @@ typedef struct
 	bool smooth;          /* smooth pixels (sharp bilinear), or sharp ones */
 	bool bilinear;        /* plain bilinear pixels, softer than smooth ones (over smooth) */
 	bool crt;             /* a CRT's look: scanlines and a phosphor mask over smooth pixels (over both) */
-	bool wide;            /* a 16:9 picture: the stages wider (console_wide_now), the rest between bars */
+	int wide;             /* CONSOLE_WIDE_*: a wider picture, the stages wider (console_wide_now), the rest
+	                         between bars; 16:10 the same game, the window's middle narrower (the Steam Deck) */
+	bool vsync;           /* VSYNC: each frame shown at the screen's refresh (a computer's) */
 	int volume;           /* 0-10: 5 is the game's own */
 	int title_music;      /* the sound id of the song the title plays (SOUND TEST picks it) */
 	int continues;        /* a game's continues, 0-9, or -1: free play (CONTINUES) */
@@ -34,10 +39,19 @@ typedef struct
 	bool ball_rolls_on;   /* the mouse turns a ball that keeps rolling when it stops, */
 	double ball_drag;     /* which keeps this part of its speed a frame, */
 	double ball_friction; /* and loses this many counts a frame more */
+	char name[CONSOLE_NAME_LENGTH + 1];    /* MULTIPLAYER > NAME: this device's player's, as the rooms show it */
 	bool changed;
 } console_window;
 
 extern console_window console_window_settings;
+
+/* WIDE's kinds, as segasonic.ini names them ("off", "16:9", "16:10"; yes is 16:9) and OPTIONS shows them (OFF,
+   16:10, 16:9: the narrower first). The game draws the same frame with either: the video's 416 pixels, of which
+   the window shows the middle 398 (16:9) or 358 (16:10, the Steam Deck's 1280 x 800) */
+#define CONSOLE_WIDE_OFF    0
+#define CONSOLE_WIDE_16_9   1
+#define CONSOLE_WIDE_16_10  2
+#define CONSOLE_WIDE_KINDS  3
 
 /* The actions newly pressed this frame and the ones held (ACTION_BIT), before the game's frame: the
    menus read them */
@@ -131,6 +145,38 @@ bool console_in_game(void);
    SEGASONIC_PAUSE_EXIT (Android's) its choices too, CONTINUE and EXIT, in the text layer's rows
    CONSOLE_PAUSE_MENU_ROW and two under it */
 void console_pause_text(bool shown);
+
+/* ---- MULTIPLAYER, the LAN game (lan.c: arcade-lan, in lockstep) ---- */
+
+#define CONSOLE_LAN_SLOTS   3    /* the cabinet's players: a room's devices in its list's order */
+#define CONSOLE_LAN_INPUT   3    /* a player's input at a frame: the trackball's x and y counts (signed bytes), and
+                                    CONSOLE_LAN_BUTTON and CONSOLE_LAN_START */
+#define CONSOLE_LAN_BUTTON  0x01u
+#define CONSOLE_LAN_START   0x02u
+
+/* A LAN game's start (the host's START) or its end (the game over, the host gone, out of step, BACK): at the
+   frame's end the port leaves the program and resets the board as at power-on (s32_init, its own EEPROM, the
+   sound board), then calls console_lan_power_on, which puts the host's EEPROM over it for a game, and runs the
+   program from its start again */
+bool console_lan_reset_wanted(void);
+void console_lan_power_on(void);
+
+/* In a LAN game: the port gives this device's player's controls each frame (console_lan_frame), and every slot's
+   come back, the frame's; false while they have not come: the game holds there (the port shows the frame again,
+   with console_lan_waiting's name after a third of a second), and asks again */
+bool console_lan_playing(void);
+bool console_lan_frame(const uint8_t own[CONSOLE_LAN_INPUT], uint8_t slots[CONSOLE_LAN_SLOTS][CONSOLE_LAN_INPUT]);
+const char *console_lan_waiting(void);
+
+/* This device leaves its LAN game (its BACK: the others play on without it) */
+void console_lan_leave_game(void);
+
+/* "WAITING FOR name" on the text layer's top (shown), or the cells it covered back, as console_pause_text */
+void console_lan_waiting_text(bool shown);
+
+/* The frame a LAN game ran last, and the state's hash the devices compare (the headless runs' --lan-hashes) */
+uint32_t console_lan_frame_number(void);
+uint64_t console_lan_state_hash(void);
 
 #ifdef SEGASONIC_PAUSE_EXIT
 #define CONSOLE_PAUSE_ITEMS     2

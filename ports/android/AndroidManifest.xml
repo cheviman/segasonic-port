@@ -5,7 +5,7 @@
 	             starting the game in libmain.so, on its side of the screen, full screen
 	Version:     0.1.0
 	Created:     25-10-2026
-	Modified:    25-10-2026
+	Modified:    07-11-2026
 	Author:      Sebastian Toyos
 
 	The version and the SDKs come from android.cmake (aapt2 link). A touch screen and a game controller are
@@ -20,6 +20,9 @@
 	<uses-feature android:name="android.hardware.gamepad" android:required="false" />
 	<uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 	<uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+	<!-- MULTIPLAYER: arcade-lan's UDP sockets on the local network (console/lan.c), as TMNT's -->
+	<uses-permission android:name="android.permission.INTERNET" />
 
 	<application
 		android:label="SegaSonic"

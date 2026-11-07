@@ -3,7 +3,7 @@
  *    Description: the sound board's chips and the Z80 program on the board's time (sound_chips.c, sound_cpu.c)
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    13-10-2026
+ *    Modified:    07-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -29,6 +29,10 @@ void sound_chips_attach(void);
 
 /* The decompiled sound program on the board's time (sound_cpu.c) */
 void sound_cpu_attach(void);
+
+/* The sound CPU as at power-on (held in reset, its time at the board's), before the board is set up again
+   (s32_init): a LAN game's start and end, the same on every device */
+void sound_cpu_power_on(void);
 
 /* The YM3438 timers due by 'time' run out (sound_cpu.c calls it where a block starts) */
 void sound_chips_timers_due(uint64_t time);

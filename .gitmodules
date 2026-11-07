@@ -1,0 +1,3 @@
+[submodule "lan"]
+	path = lan
+	url = https://github.com/cheviman/arcade-lan.git

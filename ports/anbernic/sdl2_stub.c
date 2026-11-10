@@ -439,6 +439,11 @@ void SDL_SetHint(void)
 {
 }
 
+void SDL_SetHintWithPriority(void);
+void SDL_SetHintWithPriority(void)
+{
+}
+
 void SDL_SetRelativeMouseMode(void);
 void SDL_SetRelativeMouseMode(void)
 {

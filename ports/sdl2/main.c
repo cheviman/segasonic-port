@@ -1789,12 +1789,15 @@ static void add_mappings_file(char **text, size_t *length)
 /* The game controllers' mappings, a hint before SDL starts (SDL_HINT_GAMECONTROLLERCONFIG, which SDL reads before
    it looks for joysticks: a mapping added after leaves a joystick already plugged in a joystick, which the game
    does not take, as SDL 2.32's SDL_PrivateAddMappingForGUID does). SDL_GameControllerDB's for this platform built
-   in (TMNT's players' report: an Nvidia Shield's PS4 and Xbox controllers), a handheld's own buttons, and last the
-   player's gamecontrollerdb.txt, so that its lines go over the others for the same controller */
+   in (TMNT's players' report: an Nvidia Shield's PS4 and Xbox controllers), a handheld's own buttons, the
+   environment's SDL_GAMECONTROLLERCONFIG (Steam's, in the games it starts), and last the player's
+   gamecontrollerdb.txt, so that its lines go over the others for the same controller. The hint overrides the
+   environment's, which SDL_GetHint takes over a hint of normal priority: the built-in lines and the file left out */
 static void add_mappings(void)
 {
 	char *text = NULL;
 	size_t length = 0;
+	const char *environment = getenv(SDL_HINT_GAMECONTROLLERCONFIG);    /* (C's: the Anbernic's SDL by name only) */
 
 #ifdef SEGASONIC_CONTROLLER_DB
 	add_text(&text, &length, (const char *)segasonic_controller_db, segasonic_controller_db_size);
@@ -1805,11 +1808,18 @@ static void add_mappings(void)
 		add_text(&text, &length, device_mappings[mapping], strlen(device_mappings[mapping]));
 		add_text(&text, &length, "\n", 1);
 	}
-#else
+#endif
+	if (environment && environment[0])
+	{
+		add_text(&text, &length, environment, strlen(environment));
+		add_text(&text, &length, "\n", 1);
+		fprintf(stderr, "game controllers: the environment's " SDL_HINT_GAMECONTROLLERCONFIG " too\n");
+	}
+#ifndef SEGASONIC_HANDHELD
 	add_mappings_file(&text, &length);
 #endif
 	if (text)
-		SDL_SetHint(SDL_HINT_GAMECONTROLLERCONFIG, text);
+		SDL_SetHintWithPriority(SDL_HINT_GAMECONTROLLERCONFIG, text, SDL_HINT_OVERRIDE);
 	free(text);
 }
 

@@ -328,6 +328,13 @@ tools/make_screenshots.py  the screenshots above
                         Android's builds in them, and Anbernic's package
 ```
 
+## Supporting it
+
+The game is free, and stays free. If you want to support the decompilations and the ports, there is
+[Patreon](https://www.patreon.com/ChevimanPorts), where supporters also have a say in what comes next, and
+[GitHub Sponsors](https://github.com/sponsors/cheviman): entirely optional, nothing is locked behind either. If
+anyone asks you to pay for this game, it is not this project.
+
 ## Credits
 
 - The game: *SegaSonic The Hedgehog*, SEGA, 1993.

@@ -37,9 +37,16 @@ REGION_BUILDERS = {
 }
 
 
+def inside_assets(relative_path):
+    """Whether the path stays inside assets/: no '..', no absolute path, no link that leads out of it."""
+    return ASSETS.resolve() in (ROOT / relative_path).resolve().parents
+
+
 def load_manifest():
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     for asset in manifest["assets"]:
+        if not inside_assets(asset["path"]):
+            raise SystemExit(f"assets.json: {asset['path']} is outside assets/")
         asset["offset"] = int(asset["offset"], 0)
         asset["size"] = int(asset["size"], 0)
         if asset["region"] not in REGION_BUILDERS:
@@ -312,6 +319,9 @@ def extract(asset, data, region_of):
 
 
 def remove(relative_path):
+    if not inside_assets(relative_path):
+        print(f"  {relative_path}: outside assets/, left alone")
+        return
     path = ROOT / relative_path
     if path.is_dir():
         shutil.rmtree(path)

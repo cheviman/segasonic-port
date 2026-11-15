@@ -8,7 +8,11 @@
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
- *    Usage: sonic
+ *    Usage: sonic [--game ROM_SET] [--prepare]
+ *    On a computer, --game names the player's ROM set (sonic.zip, or a folder of its files), from which the
+ *    game makes its assets pack when there is none or it cannot be read, without the first run's window;
+ *    with --prepare too it makes the pack, says how far it is on stdout ("progress 0.5 text") and ends,
+ *    with no window: RecompLauncher's setup step (recomplauncher.json). With neither it starts as before.
  *
  *    The executable carries nothing of the game's: it loads the game's assets from segasonic.assets beside
  *    it (game/data.h; the pack of the assets taken out of the player's ROM set), with SDL2 beside it too.
@@ -50,6 +54,7 @@
 #include "s32/video.h"
 #include "s32/workers.h"
 #include "game/data.h"
+#include "game/extract.h"
 #include "first_run.h"
 #include "sound/chips.h"
 
@@ -1991,6 +1996,64 @@ static game_data_result load_assets(const char *base, const char *saves, char *p
 #endif
 }
 
+#if !defined(__SWITCH__) && !defined(SEGASONIC_HANDHELD)
+/* ---- what a launcher passes (a computer's: RecompLauncher's recomplauncher.json, a script, a shortcut) ---- */
+
+static const char *game_option;    /* --game: the player's ROM set, sonic.zip or a folder of its files */
+static bool prepare_option;        /* --prepare: the pack from it, and the end */
+
+static void read_options(int argc, char **argv)
+{
+	for (int index = 1; index < argc; index++)
+	{
+		if (strcmp(argv[index], "--game") == 0 && index + 1 < argc)
+			game_option = argv[++index];
+		else if (strncmp(argv[index], "--game=", 7) == 0)
+			game_option = argv[index] + 7;
+		else if (strcmp(argv[index], "--prepare") == 0)
+			prepare_option = true;
+	}
+	if (game_option && !game_option[0])
+		game_option = NULL;
+}
+
+/* --prepare: the assets pack from --game's ROM set, where the game looks for it first (beside the executable
+   when one is there, else in the folder of what it keeps, as the first run writes it), with no window. It
+   says how far it is on stdout, what failed on stderr, and ends: 0 when the pack is made, 1 with no --game,
+   2 when the ROM set is not the one or the pack cannot be written */
+static int prepare(void)
+{
+	char *base = SDL_GetBasePath(), *saves = saves_folder();
+	char pack[1024];
+	const char *problem = NULL;
+	FILE *there;
+
+	if (!game_option)
+		problem = "no ROM set: --game sonic.zip";
+	else
+	{
+		snprintf(pack, sizeof(pack), "%s" ASSETS_FILE, base ? base : "");
+		if ((there = fopen(pack, "rb")) != NULL)
+			fclose(there);
+		else
+			snprintf(pack, sizeof(pack), "%s" ASSETS_FILE, saves ? saves : "");
+		printf("progress 0 Reading your ROM set\n");
+		fflush(stdout);
+		problem = game_data_extract(game_option, pack);
+	}
+	SDL_free(base);
+	SDL_free(saves);
+	if (problem)
+	{
+		fprintf(stderr, "--prepare: %s\n", problem);
+		return game_option ? 2 : 1;
+	}
+	printf("progress 1 The game's graphics and sound are ready\n");
+	fflush(stdout);
+	return 0;
+}
+#endif
+
 int main(int argc, char **argv)
 {
 	SDL_AudioSpec wanted;
@@ -1998,8 +2061,14 @@ int main(int argc, char **argv)
 	char *base, *saves;
 	game_data_result assets;
 
+#if !defined(__SWITCH__) && !defined(SEGASONIC_HANDHELD)
+	read_options(argc, argv);
+	if (prepare_option)
+		return prepare();    /* (no SDL_Init: no window, no sound) */
+#else
 	(void)argc;
 	(void)argv;
+#endif
 #ifdef __SWITCH__
 	romfsInit();
 	/* (what the game says, failures included, goes to segasonic.log in its folder: the Switch has no console
@@ -2055,6 +2124,19 @@ int main(int argc, char **argv)
 #if !defined(__SWITCH__) && !defined(SEGASONIC_HANDHELD)
 	/* (a game device makes nothing from the ROM set: its assets come with the game, made on a computer, in
 	   the Switch's .nsp or beside a handheld's executable) */
+	if (game_option && assets != GAME_DATA_LOADED)
+	{
+		/* (--game: the pack from that ROM set, without the first run's window, over the one that cannot be read
+		   or where the first run writes it; if it fails, as with no --game) */
+		const char *problem;
+
+		if (assets == GAME_DATA_MISSING)
+			snprintf(assets_path, sizeof(assets_path), "%s" ASSETS_FILE, saves ? saves : "");
+		if ((problem = game_data_extract(game_option, assets_path)) == NULL)
+			assets = game_data_load(assets_path);
+		else
+			fprintf(stderr, "--game %s: %s\n", game_option, problem);
+	}
 	if (assets == GAME_DATA_MISSING)
 	{
 		/* (the first run: the pack from the player's ROM set, where the game keeps what it writes) */

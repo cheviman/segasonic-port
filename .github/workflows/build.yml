@@ -94,6 +94,7 @@ jobs:
             esac
           done
           cp LICENSE dist/segasonic/LICENSE.txt
+          cp recomplauncher.json dist/segasonic/    # (RecompLauncher's setup, settings and start, beside the games)
           cp tools/reference/mame/LICENSE dist/segasonic/licenses/MAME.txt
           cp tools/reference/ymfm/LICENSE dist/segasonic/licenses/ymfm.txt
           cp build/cmake/_deps/sdl2-src/LICENSE.txt dist/segasonic/licenses/SDL2.txt

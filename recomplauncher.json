@@ -1,0 +1,149 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "SegaSonic The Hedgehog",
+  "inputs": [
+    {
+      "id": "romset",
+      "role": "game",
+      "label": "MAME's ROM set of SegaSonic The Hedgehog: sonic.zip (Japan, rev. C, 18 files), or a folder of its files.",
+      "formats": [
+        { "type": "file", "extensions": ["zip"] },
+        { "type": "folder" }
+      ]
+    }
+  ],
+  "start": {
+    "program": ["SegaSonic.exe", "SegaSonic", "SegaSonic.app/Contents/MacOS/SegaSonic"],
+    "args": ["--game", "{input:romset}"]
+  },
+  "prepare": {
+    "program": ["SegaSonic.exe", "SegaSonic", "SegaSonic.app/Contents/MacOS/SegaSonic"],
+    "args": ["--prepare", "--game", "{input:romset}"],
+    "label": "The game's graphics and sound from your sonic.zip",
+    "timeout": 120
+  },
+  "config": [
+    {
+      "id": "main",
+      "format": "ini",
+      "file": [
+        { "path": "{install}/segasonic.ini", "if": "{install}/SegaSonic.exe" },
+        { "path": "{home}/Library/Application Support/SegaSonic/segasonic.ini", "if": "{install}/SegaSonic.app" },
+        { "path": "{local}/SegaSonic/segasonic.ini" }
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "id": "display", "label": "Display", "group": "Picture",
+      "help": "A window, or the whole screen (F11 or Alt+Enter change it while playing).",
+      "choices": [
+        { "label": "Window", "set": { "video/full_screen": "no" } },
+        { "label": "Full screen", "set": { "video/full_screen": "yes" } }
+      ],
+      "defaults": { "video/full_screen": "no" }
+    },
+    {
+      "id": "scale", "label": "Window size", "group": "Picture",
+      "help": "Times the arcade's 320 x 224 picture: 3 is 960 x 672.",
+      "slider": { "key": "video/scale", "min": 1, "max": 6, "step": 1, "format": "%d" },
+      "when": { "video/full_screen": "no" },
+      "defaults": { "video/scale": "3" }
+    },
+    {
+      "id": "pixels", "label": "Pixels", "group": "Picture",
+      "help": "Sharp keeps the arcade's square pixels; Smooth softens their edges; Bilinear is softer still; CRT adds a tube's scanlines and mask.",
+      "choices": [
+        { "label": "Sharp", "set": { "video/smooth": "no", "video/bilinear": "no", "video/crt": "no" } },
+        { "label": "Smooth", "set": { "video/smooth": "yes", "video/bilinear": "no", "video/crt": "no" } },
+        { "label": "Bilinear", "set": { "video/bilinear": "yes", "video/crt": "no" } },
+        { "label": "CRT", "set": { "video/crt": "yes" } }
+      ],
+      "defaults": { "video/smooth": "no", "video/bilinear": "no", "video/crt": "no" }
+    },
+    {
+      "id": "wide", "label": "Wide", "group": "Picture",
+      "help": "A wider picture: the stages show more at the sides, the scenes stay 4:3 between bars. 16:10 fills the Steam Deck.",
+      "choices": [
+        { "label": "Off", "set": { "video/wide": "off" } },
+        { "label": "16:9", "set": { "video/wide": "16:9" } },
+        { "label": "16:10", "set": { "video/wide": "16:10" } }
+      ],
+      "defaults": { "video/wide": "off" }
+    },
+    {
+      "id": "vsync", "label": "VSync", "group": "Picture",
+      "help": "Each frame at the screen's refresh, with no tearing. The game keeps its own 60 frames a second either way.",
+      "choices": [
+        { "label": "On", "set": { "video/vsync": "yes" } },
+        { "label": "Off", "set": { "video/vsync": "no" } }
+      ],
+      "defaults": { "video/vsync": "yes" }
+    },
+    {
+      "id": "volume", "label": "Volume", "group": "Sound",
+      "help": "1 is the game's own, 0 silent, 2 twice as loud.",
+      "slider": { "key": "sound/volume", "min": 0, "max": 2, "step": 0.2, "format": "%g" },
+      "defaults": { "sound/volume": "1" }
+    },
+    {
+      "id": "continues", "label": "Continues", "group": "Game",
+      "help": "How many times a game goes on after it's lost, or free play.",
+      "choices": [
+        { "label": "Free play", "set": { "game/continues": "-1" } },
+        { "label": "0", "set": { "game/continues": "0" } },
+        { "label": "1", "set": { "game/continues": "1" } },
+        { "label": "2", "set": { "game/continues": "2" } },
+        { "label": "3", "set": { "game/continues": "3" } },
+        { "label": "4", "set": { "game/continues": "4" } },
+        { "label": "5", "set": { "game/continues": "5" } },
+        { "label": "6", "set": { "game/continues": "6" } },
+        { "label": "7", "set": { "game/continues": "7" } },
+        { "label": "8", "set": { "game/continues": "8" } },
+        { "label": "9", "set": { "game/continues": "9" } }
+      ],
+      "defaults": { "game/continues": "3" }
+    },
+    {
+      "id": "stick_speed", "label": "Stick speed", "group": "Controls",
+      "help": "How fast the left stick rolls the trackball when pushed all the way. Sonic is at his fastest from about 36.",
+      "slider": { "key": "controller/roll", "min": 0, "max": 60, "step": 5, "format": "%d" },
+      "defaults": { "controller/roll": "30" }
+    },
+    {
+      "id": "dead_zone", "label": "Stick dead zone", "group": "Controls",
+      "help": "How far the left stick goes, in percent, before it rolls anything. Raise it if Sonic walks on his own.",
+      "slider": { "key": "controller/dead_zone", "min": 0, "max": 50, "step": 5, "format": "%d" },
+      "defaults": { "controller/dead_zone": "15" }
+    }
+  ],
+  "saves": [
+    "{install}/segasonic.eeprom",
+    "{install}/segasonic.times",
+    "{install}/segasonic.ini",
+    "{install}/controls.ini",
+    "{local}/SegaSonic/segasonic.eeprom",
+    "{local}/SegaSonic/segasonic.times",
+    "{local}/SegaSonic/segasonic.ini",
+    "{local}/SegaSonic/controls.ini",
+    "{home}/Library/Application Support/SegaSonic/segasonic.eeprom",
+    "{home}/Library/Application Support/SegaSonic/segasonic.times",
+    "{home}/Library/Application Support/SegaSonic/segasonic.ini",
+    "{home}/Library/Application Support/SegaSonic/controls.ini"
+  ],
+  "folders": {
+    "files": [
+      { "path": "{install}", "if": "{install}/SegaSonic.exe" },
+      { "path": "{home}/Library/Application Support/SegaSonic", "if": "{install}/SegaSonic.app" },
+      { "path": "{local}/SegaSonic" }
+    ]
+  },
+  "actions": [
+    { "id": "files", "label": "Game files", "help": "Your settings, controls, TIME ATTACK's best times and the game's EEPROM.", "open": "files" }
+  ],
+  "exit_codes": {
+    "1": "The game stopped before it began and said why. If it was its assets, set it up again with your sonic.zip on its page.",
+    "2": "That isn't MAME's sonic.zip (SegaSonic The Hedgehog, Japan, rev. C), or one of its 18 files is wrong. Pick the right ROM set on the game's page."
+  }
+}

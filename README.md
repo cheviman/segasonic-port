@@ -1,5 +1,7 @@
 # SegaSonic The Hedgehog — native port
 
+<a href="https://recomplauncher.com/game/segasonic-port"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+
 Sega's 1993 arcade game *SegaSonic The Hedgehog* (Sega System 32) as a native game for Windows, Linux and
 macOS, and, with its assets made on your computer, for the Nintendo Switch, Android and Anbernic's handhelds:
 not an emulator, but the game's own program decompiled into C
@@ -55,6 +57,11 @@ game and drop it on the window that asks for it. The game checks every file by i
 it uses into `segasonic.assets` (in the folder where it keeps its files, below) and starts; from then on
 it loads that pack and never opens the ROM set again. The pack is made from your ROM: it is yours, not
 one to share.
+
+A launcher, a script or a shortcut can name the ROM set instead: `SegaSonic --game path/to/sonic.zip` (or a
+folder of its files) makes the pack from there with no window, and `--prepare` with it makes the pack and
+ends. [RecompLauncher](https://recomplauncher.com/game/segasonic-port) does it all for you: it asks for your
+`sonic.zip`, sets the game up and shows its settings (`recomplauncher.json`, in every computer package).
 
 ### The console version: SegaSonic
 

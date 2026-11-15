@@ -609,7 +609,7 @@ static bool video_open;    /* the VIDEO page is on screen, in OPTIONS' place */
 #define VOLUME_MOST         10
 
 console_window console_window_settings = { .window_scale = 3, .wide = CONSOLE_WIDE_OFF, .vsync = true, .volume = 5,
-	.title_music = 0x01, .continues = 3, .stick_roll = 30, .key_roll = 30, .mouse_speed = 0.35, .ball_rolls_on = true,
+	.title_music = 0x01, .continues = 3, .stick_roll = 30, .stick_dead_zone = 15, .key_roll = 30, .mouse_speed = 0.35, .ball_rolls_on = true,
 	.ball_drag = 0.98, .ball_friction = 0.3 };
 
 static int option_choice;    /* the line chosen on the page shown */
@@ -1444,6 +1444,7 @@ static void run_controls(void)
 enum
 {
 	TRACKBALL_STICK,
+	TRACKBALL_DEAD_ZONE,
 	TRACKBALL_KEYS,
 	TRACKBALL_MOUSE,
 	TRACKBALL_ROLLS_ON,
@@ -1455,24 +1456,26 @@ enum
 };
 
 static const char *const trackball_names[TRACKBALL_ITEMS] = {
-	"STICK", "KEYS", "MOUSE", "ROLLS ON", "DRAG", "FRICTION", "DEFAULTS", "BACK"
+	"STICK", "DEAD ZONE", "KEYS", "MOUSE", "ROLLS ON", "DRAG", "FRICTION", "DEFAULTS", "BACK"
 };
 
 /* The page's lines, two a row */
 static const int trackball_lines[] = {
-	TRACKBALL_STICK, TRACKBALL_KEYS, TRACKBALL_MOUSE, TRACKBALL_ROLLS_ON, TRACKBALL_DRAG, TRACKBALL_FRICTION,
+	TRACKBALL_STICK, TRACKBALL_DEAD_ZONE, TRACKBALL_KEYS, TRACKBALL_MOUSE, TRACKBALL_ROLLS_ON, TRACKBALL_DRAG, TRACKBALL_FRICTION,
 	TRACKBALL_DEFAULTS, TRACKBALL_BACK
 };
 
 #define TRACKBALL_LINES       ((int)(sizeof(trackball_lines) / sizeof(trackball_lines[0])))
 #define TRACKBALL_TITLE_ROW   1u
 #define TRACKBALL_FIRST_ROW   3u      /* then a row every two lines, */
-#define TRACKBALL_HINT_ROW    (TRACKBALL_FIRST_ROW + (uint32_t)TRACKBALL_LINES / 2u + 1u)
-#define TRACKBALL_NAME_COLUMN 2u      /* the left line's name and value, */
+#define TRACKBALL_HINT_ROW    (TRACKBALL_FIRST_ROW + ((uint32_t)TRACKBALL_LINES + 1u) / 2u + 1u)
+#define TRACKBALL_NAME_COLUMN 1u      /* the left line's name and value (DEAD ZONE's nine letters and a space), */
 #define TRACKBALL_VALUE_COLUMN 11u
 #define TRACKBALL_HALF        19u     /* and the right one's this much further */
 #define ROLL_STEP             5       /* STICK and KEYS: 0 to 60 (the player is at its fastest from about 36 counts a */
 #define ROLL_MOST             60      /* frame along an axis: set_speed_from_trackball) */
+#define DEAD_ZONE_STEP        5       /* DEAD ZONE: 0% to 50% of the stick's travel */
+#define DEAD_ZONE_MOST        50
 #define MOUSE_LEAST           0.05    /* MOUSE: as F5 and F6 change it, a fifth slower or a quarter faster */
 #define MOUSE_MOST            4.0
 #define DRAG_LEAST            90      /* DRAG: 0.90 to 1.00, in hundredths */
@@ -1527,6 +1530,9 @@ static void trackball_value(int line, char *text)
 	{
 	case TRACKBALL_STICK:
 		arrow_number(text, console_window_settings.stick_roll, 0, 2, "");
+		return;
+	case TRACKBALL_DEAD_ZONE:
+		arrow_number(text, console_window_settings.stick_dead_zone, 0, 2, "%");
 		return;
 	case TRACKBALL_KEYS:
 		arrow_number(text, console_window_settings.key_roll, 0, 2, "");
@@ -1585,15 +1591,15 @@ static void erase_trackball(void)
 		erase_line(row);
 }
 
-/* STICK and KEYS a step of ROLL_STEP, from the multiple of it at or under the value (segasonic.ini may hold
-   any) */
-static int roll_step(int roll, int step)
+/* STICK, DEAD ZONE and KEYS a step of 'size', from the multiple of it at or under the value (segasonic.ini
+   may hold any), from 0 to 'most' */
+static int multiple_step(int value, int step, int size, int most)
 {
-	const int under = roll - roll % ROLL_STEP;
+	const int under = value - value % size;
 
 	if (step > 0)
-		return clamp(under + ROLL_STEP, 0, ROLL_MOST);
-	return clamp(under == roll ? under - ROLL_STEP : under, 0, ROLL_MOST);
+		return clamp(under + size, 0, most);
+	return clamp(under == value ? under - size : under, 0, most);
 }
 
 static void change_trackball(int line, int step)
@@ -1603,10 +1609,13 @@ static void change_trackball(int line, int step)
 	switch (line)
 	{
 	case TRACKBALL_STICK:
-		window->stick_roll = roll_step(window->stick_roll, step);
+		window->stick_roll = multiple_step(window->stick_roll, step, ROLL_STEP, ROLL_MOST);
+		break;
+	case TRACKBALL_DEAD_ZONE:
+		window->stick_dead_zone = multiple_step(window->stick_dead_zone, step, DEAD_ZONE_STEP, DEAD_ZONE_MOST);
 		break;
 	case TRACKBALL_KEYS:
-		window->key_roll = roll_step(window->key_roll, step);
+		window->key_roll = multiple_step(window->key_roll, step, ROLL_STEP, ROLL_MOST);
 		break;
 	case TRACKBALL_MOUSE:
 		window->mouse_speed *= step > 0 ? 1.25 : 0.8;
@@ -1632,6 +1641,7 @@ static void change_trackball(int line, int step)
 static void trackball_defaults(void)
 {
 	console_window_settings.stick_roll = 30;
+	console_window_settings.stick_dead_zone = 15;
 	console_window_settings.key_roll = 30;
 	console_window_settings.mouse_speed = 0.35;
 	console_window_settings.ball_rolls_on = true;

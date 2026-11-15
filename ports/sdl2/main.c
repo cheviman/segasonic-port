@@ -825,6 +825,7 @@ static void tell_console_settings(void)
 	console_window_settings.title_music = (int)settings.title_music;
 	console_window_settings.continues = (int)settings.continues;
 	console_window_settings.stick_roll = (int)lround(settings.stick_roll);
+	console_window_settings.stick_dead_zone = (int)lround(settings.stick_dead_zone);
 	console_window_settings.key_roll = (int)lround(settings.key_roll);
 	console_window_settings.mouse_speed = settings.mouse_speed;
 	console_window_settings.ball_rolls_on = settings.ball_rolls_on;
@@ -1117,6 +1118,25 @@ static void lan_controls(void)
 }
 #endif
 
+/* The left stick as the trackball's counts this frame: none within the dead zone about its middle (a stick that
+   does not come back to it: issue 5, an Xbox controller's drift), and from the zone's edge out to the whole of
+   STICK at the end of its travel, the way it leans kept */
+static void stick_lean(SDL_GameController *pad, double *x, double *y)
+{
+	const double lean_x = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0;
+	const double lean_y = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0;
+	const double lean = sqrt(lean_x * lean_x + lean_y * lean_y);
+	const double dead = settings.stick_dead_zone / 100.0;
+	double scale;
+
+	*x = *y = 0.0;
+	if (lean <= dead)
+		return;
+	scale = (lean - dead) / (1.0 - dead) / lean * settings.stick_roll;
+	*x = lean_x * scale;
+	*y = lean_y * scale;
+}
+
 /* the state of every control once a frame, where the board reads them */
 static void on_controls_update(void)
 {
@@ -1208,11 +1228,13 @@ static void on_controls_update(void)
 	for (int player = 0; player < PLAYERS; player++)
 	{
 		SDL_GameController *pad = controllers[player];
+		double lean_x, lean_y;
 
 		if (!pad)
 			continue;
-		controls.roll_x[player] -= (int)lround(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0 * settings.stick_roll);
-		controls.roll_y[player] += (int)lround(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0 * settings.stick_roll);
+		stick_lean(pad, &lean_x, &lean_y);
+		controls.roll_x[player] -= (int)lround(lean_x);
+		controls.roll_y[player] += (int)lround(lean_y);
 #ifndef SEGASONIC_CONSOLE
 		controls.button[player] |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A) != 0;
 		controls.start[player] |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START) != 0;
@@ -1662,6 +1684,7 @@ static void on_frame_done(void)
 		settings.title_music = console_window_settings.title_music;
 		settings.continues = console_window_settings.continues;
 		settings.stick_roll = console_window_settings.stick_roll;
+		settings.stick_dead_zone = console_window_settings.stick_dead_zone;
 		settings.key_roll = console_window_settings.key_roll;
 		settings.mouse_speed = console_window_settings.mouse_speed;
 		settings.ball_rolls_on = console_window_settings.ball_rolls_on;

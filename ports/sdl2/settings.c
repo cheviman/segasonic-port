@@ -33,6 +33,7 @@ port_settings settings = {
 	.ball_friction = 0.3,
 	.key_roll = 30.0,
 	.stick_roll = 30.0,
+	.stick_dead_zone = 15.0,
 	.window_scale = 3.0,
 	.full_screen = false,
 	.smooth = false,
@@ -92,6 +93,10 @@ static const entry entries[] = {
 	{ "controller", "roll",
 		"trackball counts a frame for the left stick pushed all the way",
 		&settings.stick_roll, NULL, 0.0, 127.0 },
+	{ "controller", "dead_zone",
+		"how far the left stick goes, in percent of its travel, before it rolls the trackball, 0 to 50: a stick\n"
+		"that does not come back to the middle rolls nothing (OPTIONS > TRACKBALL > DEAD ZONE)",
+		&settings.stick_dead_zone, NULL, 0.0, 50.0 },
 	{ "video", "scale",
 		"the window's size, in times the game's picture",
 		&settings.window_scale, NULL, 1.0, 10.0 },

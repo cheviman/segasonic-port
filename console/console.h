@@ -34,6 +34,7 @@ typedef struct
 	int title_music;      /* the sound id of the song the title plays (SOUND TEST picks it) */
 	int continues;        /* a game's continues, 0-9, or -1: free play (CONTINUES) */
 	int stick_roll;       /* TRACKBALL: trackball counts a frame for a game controller's stick pushed all the way, */
+	int stick_dead_zone;  /* the stick's travel, in percent, that rolls nothing (a stick's drift), */
 	int key_roll;         /* for an arrow key or the pad's cross held, */
 	double mouse_speed;   /* for a pixel of mouse movement */
 	bool ball_rolls_on;   /* the mouse turns a ball that keeps rolling when it stops, */

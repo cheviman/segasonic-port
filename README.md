@@ -98,8 +98,10 @@ one to share.
 - **TRACKBALL** (Windows, macOS and Linux): how far the stick, the keys and the pad's cross and the mouse
   roll Sonic, on the how to play's floor. Up and down choose a setting, left and right change it, accept
   tries it: Sonic moves (and jumps) until back. STICK and KEYS go from 0 to 60 trackball counts a frame
-  (30 at first; Sonic is at his fastest from about 36), MOUSE as F5 and F6 change it, ROLLS ON as F4, DRAG
-  and FRICTION how soon a ball the mouse left rolling stops. They are kept in `segasonic.ini`.
+  (30 at first; Sonic is at his fastest from about 36), DEAD ZONE how far the stick goes before it rolls
+  anything (0% to 50%, 15% at first: a stick that does not come back to the middle leaves Sonic still),
+  MOUSE as F5 and F6 change it, ROLLS ON as F4, DRAG and FRICTION how soon a ball the mouse left rolling
+  stops. They are kept in `segasonic.ini`.
 
 ### Controls
 
@@ -154,7 +156,9 @@ start (1). Player 1's controls:
 
 The mouse is always the trackball here, and turns as the arcade's does: the ball turns with the mouse and, when the mouse stops
 or is lifted, rolls on and slows down; the right button holds it. Each game controller is a player: the
-left stick is the trackball, A the button, Start the start and Back a coin.
+left stick is the trackball, A the button, Start the start and Back a coin; the stick rolls nothing in its
+first 15% (`segasonic.ini`'s `[controller]` `dead_zone`), so that one that does not come back to the middle
+leaves the player still.
 
 ### Where the game keeps its files
 

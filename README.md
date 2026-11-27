@@ -42,6 +42,8 @@ runs keep the packages as artifacts. Unpack it anywhere:
 | Linux `segasonic-linux-x64.tar.gz` | `SegaSonic`, `SegaSonic Arcade`, the same pictures, and `SegaSonic NSP` and `SegaSonic APK` with `switch/` and `android/` |
 | macOS `segasonic-macos-universal.zip` | `SegaSonic.app` and `SegaSonic Arcade.app`, and `SegaSonic NSP` and `SegaSonic APK` with `switch/` and `android/` |
 | Anbernic `segasonic-anbernic.zip` | `PORTS/`, the folder for the handheld's `Roms/`: `SegaSonic.sh` and the game in `segasonic/`, where your `segasonic.assets` goes (below) |
+| Raspberry Pi `segasonic-raspberrypi-arm64.tar.gz` | `SegaSonic` and `SegaSonic Arcade` for the 64-bit Raspberry Pi OS (a Raspberry Pi 3 or later: 3B, 3B+, 3A+, Zero 2 W, 4, 400, 5, 500), and the same pictures: the Linux games for arm64, with the first run that takes the assets out of your `sonic.zip` |
+| iPhone and iPad `segasonic-ios.zip` | `ios/SegaSonic.ipa`, the console version, unsigned: you install it with AltStore, SideStore or Sideloadly, and put `sonic.zip` in its folder in the Files app (its `README.txt` says how) |
 
 Each has a `README.txt` that says which game is which, and the licenses of what the executables contain
 (`LICENSE.txt`, `licenses/`). SDL3 and the C runtime

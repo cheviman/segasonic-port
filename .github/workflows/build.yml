@@ -243,9 +243,155 @@ jobs:
           path: dist/segasonic-anbernic.zip
 
   # A tag v*: the packages as a GitHub release, its notes from docs/releases/TAG.md
+  # The Raspberry Pi 3 and later (64-bit Raspberry Pi OS): both games for Linux on arm64, built in Debian 12's
+  # own image on an arm64 runner and packed with their pictures, README and licenses (ports/raspberrypi/build.sh)
+  raspberrypi:
+    name: raspberrypi-arm64
+    runs-on: ubuntu-24.04-arm
+    container: debian:bookworm
+    steps:
+      # (git before the checkout: without it the action takes the repository's archive, which has no submodules)
+      - name: Tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Build and pack
+        run: sh ports/raspberrypi/build.sh --tools
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: segasonic-raspberrypi-arm64
+          path: dist/segasonic-raspberrypi-arm64.tar.gz
+
+  # iOS: SegaSonic's app for an iPhone or an iPad (arm64), with Xcode through CMake's Xcode generator and
+  # SDL 3 from its source (ports/ios/ios.cmake; the icon the repository's), not signed (no key nor team:
+  # the player's sideloading tool signs them), an .ipa with no assets (build/bin-ios/ios), which takes the
+  # assets out of the player's sonic.zip in its Documents folder at its first start. The check reads them
+  # back: the Info.plist's keys, the executable arm64 for iOS, the bundle's resources, the .ipa's entries
+  ios:
+    name: ios
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Configure
+        run: |
+          xcodebuild -version
+          cmake -S . -B build/ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DSEGASONIC_REFERENCE_TOOLS=OFF -DSONIC_BIN_DIR="$PWD/build/bin-ios"
+
+      - name: Build
+        run: cmake --build build/ios --config Release --target segasonic_ios_games -- CODE_SIGNING_ALLOWED=NO
+
+      - name: Check
+        run: |
+          app="build/bin-ios/ios/SegaSonic.app"
+          plist="$app/Info.plist"
+          plutil -lint "$plist"
+          plutil -p "$plist"
+          for key in CFBundleIdentifier CFBundleExecutable MinimumOSVersion UIDeviceFamily UIFileSharingEnabled \
+            LSSupportsOpeningDocumentsInPlace UISupportedInterfaceOrientations UILaunchStoryboardName \
+            UIRequiresFullScreen GCSupportedGameControllers CFBundleIcons; do
+            plutil -extract "$key" xml1 -o - "$plist" > /dev/null || { echo "no $key in Info.plist"; exit 1; }
+          done
+          lipo -info "$app/SegaSonic"
+          otool -l "$app/SegaSonic" | grep -A4 LC_BUILD_VERSION
+          otool -l "$app/SegaSonic" | grep -A2 LC_BUILD_VERSION | grep -Eq "platform (2|IOS)$" || { echo "not iOS's"; exit 1; }
+          for resource in font.bmp input_prompts.bmp; do
+            [ -e "$app/$resource" ] || { echo "no $resource in the app"; exit 1; }
+          done
+          ls -la "$app"
+          unzip -l "build/bin-ios/ios/SegaSonic.ipa"
+          unzip -l "build/bin-ios/ios/SegaSonic.ipa" | grep -q "Payload/SegaSonic.app/SegaSonic\$" || { echo "SegaSonic.ipa: no app"; exit 1; }
+          if unzip -l "build/bin-ios/ios/SegaSonic.ipa" | grep -E '\.assets$|\.zip$'; then echo "SegaSonic.ipa: assets in it"; exit 1; fi
+          plutil -extract CFBundleIdentifier raw -o - "$plist" | grep -qx io.github.cheviman.segasonic-port
+
+      - name: Pack
+        run: |
+          mkdir -p dist/segasonic-ios/ios
+          cp build/bin-ios/ios/SegaSonic.ipa dist/segasonic-ios/ios/
+          cp docs/package/README-ios.txt dist/segasonic-ios/README.txt
+          cp LICENSE dist/segasonic-ios/LICENSE.txt
+          mkdir -p dist/segasonic-ios/licenses
+          cp tools/reference/mame/LICENSE dist/segasonic-ios/licenses/MAME.txt
+          cp tools/reference/ymfm/LICENSE dist/segasonic-ios/licenses/ymfm.txt
+          cp build/ios/_deps/sdl3-src/LICENSE.txt dist/segasonic-ios/licenses/SDL3.txt
+          cp ports/sdl/font/License.txt dist/segasonic-ios/licenses/Kenney-Fonts.txt
+          cp lan/LICENSE dist/segasonic-ios/licenses/arcade-lan.txt
+          cp ports/sdl/controllerdb/LICENSE dist/segasonic-ios/licenses/SDL_GameControllerDB.txt
+          if [ -f ports/sdl/prompts/License.txt ]; then
+            cp ports/sdl/prompts/License.txt dist/segasonic-ios/licenses/Kenney-Input-Prompts.txt
+          fi
+          ls -laR dist/segasonic-ios
+          cd dist && zip -r -X segasonic-ios.zip segasonic-ios
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: segasonic-ios
+          path: dist/segasonic-ios.zip
+
+  # The iOS app built for the Simulator (arm64, its own build folder) and started there, with no ROM set:
+  # it must start, write its log in its Documents folder and say there where to put sonic.zip. A screenshot
+  # of it (its message) in the artifact ios-simulator-screens. A check: the release does not wait for it
+  ios-simulator:
+    name: ios-simulator
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/ios-simulator -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DSEGASONIC_REFERENCE_TOOLS=OFF \
+            -DSONIC_BIN_DIR="$PWD/build/bin-ios-simulator"
+
+      - name: Build
+        run: cmake --build build/ios-simulator --config Release --target segasonic_ios_games -- CODE_SIGNING_ALLOWED=NO
+
+      - name: Start in the Simulator
+        run: |
+          device=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          phones = [device["udid"] for runtime in sorted(runtimes, reverse=True) if ".iOS-" in runtime
+                    for device in runtimes[runtime] if device["name"].startswith("iPhone")]
+          print(phones[0])')
+          echo "Simulator: $device"
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          mkdir -p screens
+          xcrun simctl install "$device" "build/bin-ios-simulator/ios/SegaSonic.app"
+          xcrun simctl launch "$device" "io.github.cheviman.segasonic-port"
+          data=$(xcrun simctl get_app_container "$device" "io.github.cheviman.segasonic-port" data)
+          for second in $(seq 90); do
+            grep -q "No ROM set" "$data/Documents/segasonic.log" 2>/dev/null && break
+            sleep 1
+          done
+          sleep 3
+          xcrun simctl io "$device" screenshot "screens/segasonic.png"
+          cat "$data/Documents/segasonic.log"
+          grep -q "No ROM set" "$data/Documents/segasonic.log" || { echo "no message in its log"; exit 1; }
+          xcrun simctl terminate "$device" "io.github.cheviman.segasonic-port" || true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ios-simulator-screens
+          path: screens/
+          if-no-files-found: ignore
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, anbernic]
+    needs: [build, anbernic, raspberrypi, ios]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -267,4 +413,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "SegaSonic $GITHUB_REF_NAME" --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
             dist/segasonic-windows-x64.zip dist/segasonic-linux-x64.tar.gz dist/segasonic-macos-universal.zip \
-            dist/segasonic-anbernic.zip
+            dist/segasonic-anbernic.zip dist/segasonic-raspberrypi-arm64.tar.gz dist/segasonic-ios.zip

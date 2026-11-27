@@ -119,10 +119,16 @@ else()
 	message(STATUS "No ROM set at ${SONIC_ROM} (or no Python): no assets pack; the game needs one beside it")
 endif()
 
+# iPhone and iPad (Xcode's toolchain, through CMake's Xcode generator: ports/ios/ios.cmake): the console game alone,
+# as Android's, an app of its own; no tools of the computers'
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+	set(SEGASONIC_IOS ON)
+endif()
+
 # The Switch's .nsp, made on the player's computer (ports/switch/nsp): the game's Switch build (main,
 # main.npdm, control.nacp, icon.jpg), the assets of the player's ROM set and the keys of the player's console.
 # A command line; with SDL also a window (below, with the game's window)
-if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT ANDROID)
+if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT ANDROID AND NOT SEGASONIC_IOS)
 	add_executable(segasonic_nsp ports/switch/nsp/main.c ports/switch/nsp/make_nsp.c ports/switch/nsp/formats.c
 		ports/switch/nsp/crypto.c)
 	target_link_libraries(segasonic_nsp PRIVATE sonic_data)
@@ -134,7 +140,7 @@ endif()
 # (android/segasonic-base.apk), the assets of the player's ROM set, signed with the player's own key; its
 # SHA-256 is SegaSonic NSP's (crypto.c). A command line; with SDL also a window (below, with the game's
 # window)
-if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT ANDROID)
+if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT ANDROID AND NOT SEGASONIC_IOS)
 	add_executable(segasonic_apk_maker ports/android/apk/main.c ports/android/apk/make_apk.c ports/android/apk/zip.c
 		ports/android/apk/sign.c ports/android/apk/key.c ports/android/apk/ecdsa.c ports/switch/nsp/crypto.c)
 	target_include_directories(segasonic_apk_maker PRIVATE ports/switch/nsp)
@@ -203,6 +209,11 @@ if(SONIC_DECOMPILED)
 	# ARCADE_LAN_DIR where it is), as TMNT's: without it the menu's MULTIPLAYER says NO NETWORK
 	set(ARCADE_LAN_DIR ${CMAKE_SOURCE_DIR}/lan CACHE PATH "arcade-lan's sources, for SegaSonic's LAN game")
 	if(EXISTS ${ARCADE_LAN_DIR}/CMakeLists.txt)
+		# (iOS refuses broadcasts to an app without Apple's multicast entitlement: the rooms there are found by the
+		# library's SEEKs and sweeps, ARCADE_LAN_NO_BROADCAST, as tmnt-port's)
+		if(SEGASONIC_IOS)
+			set(ARCADE_LAN_NO_BROADCAST ON CACHE BOOL "" FORCE)
+		endif()
 		add_subdirectory(${ARCADE_LAN_DIR} ${CMAKE_BINARY_DIR}/arcade_lan)
 		target_link_libraries(sonic_game_console PUBLIC arcade_lan)
 		target_compile_definitions(sonic_game_console PUBLIC SEGASONIC_LAN)
@@ -222,6 +233,8 @@ if(SONIC_DECOMPILED)
 	if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT SEGASONIC_ANBERNIC)
 		if(ANDROID)
 			set(SEGASONIC_CONTROLLER_PLATFORM "Android")
+		elseif(SEGASONIC_IOS)
+			set(SEGASONIC_CONTROLLER_PLATFORM "iOS")
 		elseif(APPLE)
 			set(SEGASONIC_CONTROLLER_PLATFORM "Mac OS X")
 		elseif(WIN32)
@@ -254,6 +267,12 @@ if(SONIC_DECOMPILED)
 	# (ports/android/android.cmake)
 	if(ANDROID)
 		include(ports/android/android.cmake)
+		return()
+	endif()
+
+	# iPhone and iPad (ports/ios/ios.cmake): the console game alone, as an app, and its unsigned .ipa
+	if(SEGASONIC_IOS)
+		include(ports/ios/ios.cmake)
 		return()
 	endif()
 

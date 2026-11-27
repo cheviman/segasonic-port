@@ -100,8 +100,8 @@ static bool mouse_click_taken;      /* that click, until its buttons are let go 
 #include <sys/stat.h>
 #define SWITCH_FOLDER "sdmc:/switch/segasonic"    /* the game's folder on the SD card */
 #endif
-#if defined(SEGASONIC_HANDHELD) && !defined(_WIN32) && !defined(__SWITCH__)
-#include <unistd.h>        /* fsync: the log on the card as it is written */
+#if !defined(_WIN32) && !defined(__SWITCH__)
+#include <unistd.h>        /* fsync: the log on the card as it is written; isatty: a terminal's standard error */
 #endif
 #ifdef SEGASONIC_HANDHELD
 static void log_written(void);
@@ -496,6 +496,54 @@ static void draw_fps(const SDL_Rect *shown)
 }
 #endif
 
+#ifdef SDL_PLATFORM_IOS
+/* ---- iOS and iPadOS (ports/ios, as tmnt-port's) ---- */
+
+static bool ios_background;    /* the app gone to the background (ios_app_events): nothing drawn there */
+
+/* The app's Documents folder, which the Files app shows as the app's own (Info.plist's UIFileSharingEnabled and
+   LSSupportsOpeningDocumentsInPlace): where the player puts the ROM set, and the folder of what the game keeps and
+   of its log. HOME is the app's own container on iOS. The caller frees it (SDL_free) */
+static char *ios_documents(void)
+{
+	const char *home = getenv("HOME");
+	const size_t length = (home ? strlen(home) : 0) + sizeof("/Documents/");
+	char *folder = SDL_malloc(length);
+
+	if (folder)
+		snprintf(folder, length, "%s/Documents/", home ? home : "");
+	return folder;
+}
+
+/* The app going to the background and coming back, as SDL sends them (an event watch: at once, before the frame's
+   events are read, as iOS may give the app no more time): from SDL_EVENT_WILL_ENTER_BACKGROUND to
+   SDL_EVENT_DID_ENTER_FOREGROUND nothing is drawn (present), an app's GPU work being refused there */
+static bool ios_app_events(void *data, SDL_Event *event)
+{
+	(void)data;
+	if (event->type == SDL_EVENT_WILL_ENTER_BACKGROUND)
+		ios_background = true;
+	else if (event->type == SDL_EVENT_DID_ENTER_FOREGROUND)
+		ios_background = false;
+	return true;
+}
+
+/* The width of each of the screen's sides the notch or the Dynamic Island takes in landscape (the window's safe area,
+   SDL's: the larger of its left and right), in the renderer's pixels for a screen 'out_width' of them wide: the
+   picture stays between them (present), and WIDE is chosen for the width between them (follow_screen). 0 where
+   none is known */
+static int ios_side_inset(int out_width)
+{
+	SDL_Rect safe;
+	int points = 0, points_high = 0;
+
+	if (!window || !SDL_GetWindowSize(window, &points, &points_high) || points <= 0
+		|| !SDL_GetWindowSafeArea(window, &safe))
+		return 0;
+	return (int)(SDL_max(safe.x, points - (safe.x + safe.w)) * (double)out_width / points + 0.5);
+}
+#endif
+
 /* A game's frame a whole frame's time behind the game's pace (a screen a little slower than the board's 60 a
    second, or the machine busy) is not shown with VSYNC, so that it does not wait for the screen's refresh: the
    game, and its sound, keep their pace, a frame left out now and then (as outrunners-port's and TMNT's) */
@@ -514,6 +562,10 @@ static void present(const uint32_t *pixels, int width, bool game_frame)
 	int out_width = 0, out_height = 0;
 	double scale;
 
+#ifdef SDL_PLATFORM_IOS
+	if (ios_background)
+		return;    /* (the app in the background: iOS refuses its GPU work there) */
+#endif
 	SDL_UpdateTexture(texture, NULL, pixels, S32_VIDEO_MAX_WIDTH * (int)sizeof(uint32_t));
 	if (width > picture_width())
 	{
@@ -523,9 +575,23 @@ static void present(const uint32_t *pixels, int width, bool game_frame)
 	}
 	SDL_GetRenderOutputSize(renderer, &out_width, &out_height);
 #ifdef SEGASONIC_TOUCH
+#ifdef SDL_PLATFORM_IOS
+	/* (the picture for the screen between the sides the notch or the Dynamic Island takes) */
+	follow_screen(out_width - 2 * ios_side_inset(out_width), out_height);
+#else
 	follow_screen(out_width, out_height);    /* (a Fold opened or closed: its picture, from the next frame) */
 #endif
+#endif
 	scale = SDL_min((double)out_width / width, (double)out_height / S32_VIDEO_HEIGHT);
+#ifdef SDL_PLATFORM_IOS
+	{
+		/* (the picture between those sides: as wide as fits there) */
+		const int room = out_width - 2 * ios_side_inset(out_width);
+
+		if (room > 0)
+			scale = SDL_min(scale, (double)room / width);
+	}
+#endif
 #ifdef SEGASONIC_CONSOLE
 	if (settings.integer_scale && scale >= 1.0)
 		scale = floor(scale);    /* (OPTIONS > VIDEO > INTEGER SCALE: every pixel of the game's the same size) */
@@ -2112,6 +2178,8 @@ static char *saves_folder(void)
 	return SDL_strdup(SWITCH_FOLDER "/");
 #elif defined(__ANDROID__)
 	return SDL_GetPrefPath("", "SegaSonic");    /* (the app's own folder, its internal storage) */
+#elif defined(SDL_PLATFORM_IOS)
+	return ios_documents();    /* (the app's Documents, the Files app's: the player can see and keep them) */
 #elif defined(SEGASONIC_HANDHELD)
 	return base_path();    /* (a handheld's: the game's folder on its card) */
 #else
@@ -2228,6 +2296,82 @@ static int prepare(void)
 }
 #endif
 
+/* ---- the log ---- */
+
+#define LOG_RUNS 3    /* the log keeps this many runs: segasonic.log, segasonic.1.log, segasonic.2.log */
+
+/* The log into FILE_NAME.log in 'folder' (with its separator), the last runs' moved before it to FILE_NAME.1.log and
+   FILE_NAME.2.log, the older ones dropped (tmnt-port's) */
+static void log_into(const char *folder)
+{
+	char path[1100], older[1100];
+
+	for (int run = LOG_RUNS - 1; run > 0; run--)
+	{
+		snprintf(older, sizeof(older), "%s" FILE_NAME ".%d.log", folder, run);
+		if (run > 1)
+			snprintf(path, sizeof(path), "%s" FILE_NAME ".%d.log", folder, run - 1);
+		else
+			snprintf(path, sizeof(path), "%s" FILE_NAME ".log", folder);
+		remove(older);
+		rename(path, older);
+	}
+	snprintf(path, sizeof(path), "%s" FILE_NAME ".log", folder);
+	if (freopen(path, "w", stderr))
+		setvbuf(stderr, NULL, _IONBF, 0);
+}
+
+/* The log: on Windows a game started with nowhere for its standard error to go (from Explorer or a launcher, not a
+   terminal), and on Linux and macOS one whose standard error is not a terminal (a launcher's, the Finder's), writes it
+   to FILE_NAME.log in the folder of what the game keeps, where the player can find it and send it (a RecompLauncher
+   player's report, 27-11-2026, came with nothing of the game's: tmnt-port's issue 21 the same); on the Switch, which
+   has no console (and SDL no message boxes there), always, in its folder on the SD card; on Android always, in the
+   app's folder on the storage; on iOS in the app's Documents; on the Anbernic, where its launcher sends it. Each
+   keeps the last runs' too (log_into). What it says is written at the start and when something changes, not a
+   frame's worth during a game */
+static void open_log(void)
+{
+#ifdef __SWITCH__
+	mkdir(SWITCH_FOLDER, 0777);
+	log_into(SWITCH_FOLDER "/");
+#elif defined(__ANDROID__)
+	/* (Android's standard error goes nowhere: the log in the app's folder on the storage, Android/data/<the
+	   app>/files, where the player can read it) */
+	if (SDL_GetAndroidExternalStoragePath())
+	{
+		char folder[1100];
+
+		snprintf(folder, sizeof(folder), "%s/", SDL_GetAndroidExternalStoragePath());
+		log_into(folder);
+	}
+#elif defined(SDL_PLATFORM_IOS)
+	{
+		/* (an app's standard error reaches no one: the log in its Documents, where the player puts the ROM set and
+		   the Files app shows it) */
+		char *documents = ios_documents();
+
+		log_into(documents ? documents : "");
+		SDL_free(documents);
+	}
+#elif defined(_WIN32)
+	if (_fileno(stderr) < 0)
+	{
+		char *saves = saves_folder();
+
+		log_into(saves ? saves : "");
+		SDL_free(saves);
+	}
+#elif !defined(SEGASONIC_HANDHELD)
+	if (!isatty(fileno(stderr)))
+	{
+		char *saves = saves_folder();
+
+		log_into(saves ? saves : "");
+		SDL_free(saves);
+	}
+#endif
+}
+
 int main(int argc, char **argv)
 {
 	SDL_AudioSpec wanted;
@@ -2245,27 +2389,20 @@ int main(int argc, char **argv)
 #endif
 #ifdef __SWITCH__
 	romfsInit();
-	/* (what the game says, failures included, goes to segasonic.log in its folder: the Switch has no console
-	   and SDL no message boxes there) */
-	mkdir(SWITCH_FOLDER, 0777);
-	freopen(SWITCH_FOLDER "/segasonic.log", "w", stderr);
-	fprintf(stderr, "SegaSonic: starting\n");
 #endif
-#ifdef __ANDROID__
-	/* (what the game says goes to segasonic.log in the app's folder on the storage, Android/data/<the
-	   app>/files: stderr goes nowhere there) */
-	if (SDL_GetAndroidExternalStoragePath())
-	{
-		char log_path[1024];
-
-		snprintf(log_path, sizeof(log_path), "%s/segasonic.log", SDL_GetAndroidExternalStoragePath());
-		freopen(log_path, "w", stderr);
-	}
+	open_log();    /* (what the game says, its failures among them: the log, where the platform has no console) */
 	fprintf(stderr, "SegaSonic: starting\n");
+#ifdef __ANDROID__
 	SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");    /* (back is the menus' back, actions.c, never the end) */
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");          /* (fingers are the touch controls, not the mouse) */
 	/* (SDL 3 shows no accelerometer as a joystick: SDL 2 had to be told, SDL_HINT_ACCELEROMETER_AS_JOYSTICK) */
 	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
+#ifdef SDL_PLATFORM_IOS
+	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");          /* (fingers are the touch controls, not the mouse) */
+	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+	SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");     /* (dimmed, and a first swipe from the bottom only shows it) */
+	SDL_SetHint(SDL_HINT_AUDIO_CATEGORY, "playback");       /* (AVAudioSession's playback: heard with the ringer off) */
 #endif
 #ifdef SEGASONIC_TOUCH_TEST
 	SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "1");    /* (a computer's check of the touch controls: the mouse a finger) */
@@ -2279,6 +2416,10 @@ int main(int argc, char **argv)
 		SDL_free(SDL_GetGamepadMappings(&mappings));
 		fprintf(stderr, "game controllers: %d mappings\n", mappings);
 	}
+#ifdef SDL_PLATFORM_IOS
+	SDL_AddEventWatch(ios_app_events, NULL);    /* (the background, as it comes: nothing drawn there) */
+	SDL_DisableScreenSaver();                   /* (no dimming nor locking while a game controller plays) */
+#endif
 #ifdef __SWITCH__
 	base = SDL_strdup("romfs:/");
 #else
@@ -2299,6 +2440,28 @@ int main(int argc, char **argv)
 	}
 #endif
 	assets = load_assets(base, saves, assets_path, sizeof(assets_path));
+#ifdef SDL_PLATFORM_IOS
+	if (assets != GAME_DATA_LOADED)
+	{
+		/* (no computer makes an iOS app's assets: the first start takes them out of the ROM set the player puts in
+		   the app's Documents, sonic.zip or a folder sonic of its files, into segasonic.assets there) */
+		char source[1100];
+		const char *problem = NULL;
+
+		snprintf(assets_path, sizeof(assets_path), "%s" ASSETS_FILE, saves ? saves : "");
+		snprintf(source, sizeof(source), "%ssonic.zip", saves ? saves : "");
+		if (!SDL_GetPathInfo(source, NULL))
+			snprintf(source, sizeof(source), "%ssonic", saves ? saves : "");
+		if (!SDL_GetPathInfo(source, NULL))
+			return fail("No ROM set.", "Put sonic.zip (MAME's SegaSonic The Hedgehog, Japan, rev. C) in this game's "
+				"folder, in the Files app: On My iPhone (On My iPad) > SegaSonic. From a computer: Finder (or the Apple "
+				"Devices app on Windows), the device, Files, SegaSonic. Then start the game again: the first start "
+				"takes the game's assets out of it (some seconds).");
+		if ((problem = game_data_extract(source, assets_path)) != NULL)
+			return fail("The ROM set cannot be used.", problem);
+		assets = game_data_load(assets_path);
+	}
+#endif
 	fprintf(stderr, "assets: %s (%d)\n", assets_path, (int)assets);
 #if !defined(__SWITCH__) && !defined(SEGASONIC_HANDHELD)
 	/* (a game device makes nothing from the ROM set: its assets come with the game, made on a computer, in
@@ -2355,6 +2518,11 @@ int main(int argc, char **argv)
 	   EGL only for a window that asks for it, and its Switch window is an EGL surface always: without it
 	   SDL_CreateWindow fails, "EGL not initialized", TMNT's issue 27) */
 	window = SDL_CreateWindow(WINDOW_TITLE, 1280, 720, SDL_WINDOW_OPENGL);
+#elif defined(SDL_PLATFORM_IOS)
+	/* (the whole screen at its own pixels (HIGH_PIXEL_DENSITY: the touch controls' size by the screen's density,
+	   touch.c, in those pixels), the status bar hidden (BORDERLESS)) */
+	window = SDL_CreateWindow(WINDOW_TITLE, 1280, 720, SDL_WINDOW_FULLSCREEN | SDL_WINDOW_BORDERLESS
+		| SDL_WINDOW_HIGH_PIXEL_DENSITY);
 #else
 	window = SDL_CreateWindow(WINDOW_TITLE, (int)(picture_width() * window_scale_that_fits()),
 		(int)(S32_VIDEO_HEIGHT * window_scale_that_fits()),
@@ -2388,6 +2556,15 @@ int main(int argc, char **argv)
 	if (!texture)
 		return fail("The window could not be opened.", SDL_GetError());
 	fprintf(stderr, "window: %d x %d\n", picture_width(), S32_VIDEO_HEIGHT);
+#ifndef SEGASONIC_SDL2_LAYER
+	{
+		/* (the log: the screen's refresh, which VSYNC follows and frame_behind keeps the game's pace against) */
+		const SDL_DisplayMode *mode = window ? SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window)) : NULL;
+
+		if (mode)
+			fprintf(stderr, "screen: %d x %d at %.2f Hz\n", mode->w, mode->h, (double)mode->refresh_rate);
+	}
+#endif
 #ifdef SEGASONIC_TOUCH
 	touch_open(renderer, base ? base : "");    /* (its letters come with the game: Android's in the APK) */
 #endif
@@ -2412,6 +2589,20 @@ int main(int argc, char **argv)
 	audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &wanted, NULL, NULL);
 	if (audio)
 		SDL_ResumeAudioStreamDevice(audio);    /* (a stream's device starts paused) */
+#ifndef SEGASONIC_SDL2_LAYER
+	{
+		/* (the log: where the sound goes, as the device plays it; SDL converts the game's 48 kHz to it. A player's
+		   report of the music's speed, 27-11-2026, would have come with it) */
+		SDL_AudioSpec device;
+		int frames = 0;
+
+		if (audio && SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(audio), &device, &frames))
+			fprintf(stderr, "sound: %s, the device at %d Hz, %d channels, %d frames a buffer\n",
+				SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "?", device.freq, device.channels, frames);
+		else
+			fprintf(stderr, "sound: none (%s)\n", SDL_GetError());
+	}
+#endif
 	chips[0].step = chips[1].step = FM_RATE / OUTPUT_RATE;
 	chips[2].step = PCM_RATE / OUTPUT_RATE;
 

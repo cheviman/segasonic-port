@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	Name:        Info.plist.in
+	Description: an iOS app of SegaSonic's (SegaSonic, SegaSonic Arcade): SDL's UIKit app starting the game,
+	             on the whole screen, in landscape, its Documents folder shown in the Files app
+	Version:     0.1.0
+	Created:     20-11-2026
+	Modified:    20-11-2026
+	Author:      Sebastian Toyos
+
+	ios.cmake gives it to each game's app (MACOSX_BUNDLE_INFO_PLIST): CMake writes in its name, its identifier
+	(io.github.cheviman.segasonic-port, io.github.cheviman.segasonic-port.arcade) and the version; Xcode adds the rest it knows
+	(the oldest iOS, iPhone and iPad, the platform, the icon's keys of Assets.xcassets). The app's Documents folder is
+	in the Files app ("On My iPhone" or "On My iPad", the game's name) and in Finder's or iTunes' file sharing on a
+	computer (UIFileSharingEnabled, LSSupportsOpeningDocumentsInPlace): the player puts sonic.zip there, and the game
+	takes its assets out of it there at its first start. Landscape alone, the whole screen on an iPad too (no Split View),
+	the status bar hidden, the launch screen black (LaunchScreen.storyboard); game controllers welcome (MFi, Xbox,
+	PlayStation, Switch Pro: GameController's extended gamepad) and none needed (the touch screen's controls).
+	The local network is asked for SegaSonic's MULTIPLAYER alone (NSLocalNetworkUsageDescription); the games' files are in
+	the app's own folder.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
+	<key>CFBundleExecutable</key>
+	<string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+	<key>CFBundleIdentifier</key>
+	<string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+	<key>CFBundleVersion</key>
+	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UIRequiresFullScreen</key>
+	<true/>
+	<key>UIStatusBarHidden</key>
+	<true/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>GCSupportsControllerUserInteraction</key>
+	<true/>
+	<key>GCSupportedGameControllers</key>
+	<array>
+		<dict>
+			<key>ProfileName</key>
+			<string>ExtendedGamepad</string>
+		</dict>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MULTIPLAYER finds and plays with the other devices of your local network.</string>
+</dict>
+</plist>

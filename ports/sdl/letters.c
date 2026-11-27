@@ -3,7 +3,7 @@
  *    Description: the window's own letters: Kenney Mini (font.bmp) loaded and drawn with SDL
  *    Version:     0.1.0
  *    Created:     23-10-2026
- *    Modified:    07-11-2026
+ *    Modified:    27-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -30,8 +30,8 @@ int letters_load(SDL_Renderer *renderer, const char *base, letters *font)
 	snprintf(path, sizeof(path), "%s" FONT_FILE, base ? base : "");
 	if (!(loaded = SDL_LoadBMP(path)))
 		return 0;
-	sheet = SDL_ConvertSurfaceFormat(loaded, SDL_PIXELFORMAT_ARGB8888, 0);
-	SDL_FreeSurface(loaded);
+	sheet = SDL_ConvertSurface(loaded, SDL_PIXELFORMAT_ARGB8888);
+	SDL_DestroySurface(loaded);
 	if (!sheet)
 		return 0;
 	for (int index = 0; index <= FONT_LAST - FONT_FIRST; index++)
@@ -46,9 +46,11 @@ int letters_load(SDL_Renderer *renderer, const char *base, letters *font)
 						font->widths[index] = x - left + 1;
 	}
 	font->widths[0] = SPACE_WIDTH;
-	SDL_SetColorKey(sheet, SDL_TRUE, SDL_MapRGB(sheet->format, 0, 0, 0));
+	SDL_SetSurfaceColorKey(sheet, true, SDL_MapSurfaceRGB(sheet, 0, 0, 0));
 	font->sheet = SDL_CreateTextureFromSurface(renderer, sheet);
-	SDL_FreeSurface(sheet);
+	if (font->sheet)
+		SDL_SetTextureScaleMode(font->sheet, SDL_SCALEMODE_NEAREST);
+	SDL_DestroySurface(sheet);
 	return font->sheet != NULL;
 }
 
@@ -76,22 +78,22 @@ static void draw_from(SDL_Renderer *renderer, const letters *font, const char *t
 	SDL_SetTextureColorMod(font->sheet, colour.r, colour.g, colour.b);
 	for (; *text; text++)
 	{
-		SDL_Rect from, to;
+		SDL_FRect from, to;
 		int index;
 
 		if (*text < FONT_FIRST || *text > FONT_LAST)
 			continue;
 		index = *text - FONT_FIRST;
-		from.x = (index % FONT_ROW) * LETTERS_CELL;
-		from.y = (index / FONT_ROW) * LETTERS_CELL;
-		from.w = font->widths[index] > 0 ? font->widths[index] : 1;
-		from.h = LETTERS_CELL;
-		to.x = x;
-		to.y = y;
-		to.w = from.w * scale;
-		to.h = LETTERS_CELL * scale;
+		from.x = (float)((index % FONT_ROW) * LETTERS_CELL);
+		from.y = (float)((index / FONT_ROW) * LETTERS_CELL);
+		from.w = (float)(font->widths[index] > 0 ? font->widths[index] : 1);
+		from.h = (float)LETTERS_CELL;
+		to.x = (float)x;
+		to.y = (float)y;
+		to.w = (float)(from.w * scale);
+		to.h = (float)(LETTERS_CELL * scale);
 		if (*text != ' ')
-			SDL_RenderCopy(renderer, font->sheet, &from, &to);
+			SDL_RenderTexture(renderer, font->sheet, &from, &to);
 		x += (font->widths[index] + FONT_SPACING) * scale;
 	}
 }

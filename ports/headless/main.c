@@ -88,6 +88,8 @@ static int video_dump_count;
 static const char *video_dir;
 static FILE *sound_hashes;
 static FILE *sound_levels;
+static FILE *sound_wav;          /* --sound-wav: the frames' sound as the window mixes it, at the YM3438s' rate */
+static uint32_t sound_wav_samples;
 static FILE *sprite_census;
 static uint64_t *census_seen;    /* hashes of the sprite and color sets written, open addressing (0 = free) */
 
@@ -275,6 +277,61 @@ static void write_levels(void)
 		mix_peak, clipped, pcm_limit);
 }
 
+/* --sound-wav: a WAV's header for 'samples' stereo samples of 16 bits at the YM3438s' rate (written again at the end,
+   with the count) */
+static void put32(uint8_t *at, uint32_t value)
+{
+	for (int byte = 0; byte < 4; byte++)
+		at[byte] = (uint8_t)(value >> (8 * byte));
+}
+
+static void write_wav_header(FILE *output, uint32_t samples)
+{
+	const uint32_t rate = (uint32_t)(S32_SOUND_CLOCK / 144u), data = samples * 4u;
+	uint8_t header[44];
+
+	memcpy(header, "RIFF", 4);
+	put32(header + 4, 36u + data);
+	memcpy(header + 8, "WAVEfmt ", 8);
+	put32(header + 16, 16u);                     /* (the format's size) */
+	put32(header + 20, 1u | 2u << 16);           /* (PCM, two channels) */
+	put32(header + 24, rate);
+	put32(header + 28, rate * 4u);               /* (bytes a second) */
+	put32(header + 32, 4u | 16u << 16);          /* (bytes a sample, bits a channel) */
+	memcpy(header + 36, "data", 4);
+	put32(header + 40, data);
+	fflush(output);
+	fseek(output, 0, SEEK_SET);
+	fwrite(header, 1, sizeof(header), output);
+	fseek(output, 0, SEEK_END);
+}
+
+/* The frame's sound into the WAV: each YM3438 at 0.30 and the RF5C68 at 0.40, as the window mixes them (MAME's
+   routes), the RF5C68's samples taken at the YM3438s' (its nearest earlier one) */
+static void write_wav(void)
+{
+	const int32_t *samples[3];
+	size_t counts[3];
+
+	for (int chip = 0; chip < 3; chip++)
+		samples[chip] = sound_chips_frame_samples(chip, &counts[chip]);
+	for (size_t at = 0; counts[1] && counts[2] && at < counts[0]; at++)
+	{
+		const size_t fm1 = at < counts[1] ? at : counts[1] - 1, pcm = at * counts[2] / counts[0];
+		int16_t out[2];
+
+		for (int side = 0; side < 2; side++)
+		{
+			const double value = 0.30 * (samples[0][at * 2 + side] + samples[1][fm1 * 2 + side])
+				+ 0.40 * samples[2][pcm * 2 + side];
+
+			out[side] = (int16_t)(value > 32767.0 ? 32767 : (value < -32768.0 ? -32768 : value));
+		}
+		fwrite(out, sizeof(out), 1, sound_wav);
+		sound_wav_samples++;
+	}
+}
+
 static void sleep_ms(int milliseconds)
 {
 #ifdef _WIN32
@@ -328,10 +385,12 @@ static void on_frame_done(void)
 		dump_state();
 	if (video_hashes)
 		fprintf(video_hashes, "%" PRIu64 " %016" PRIx64 "\n", FRAMES_RUN - 1, s32_video_frame_hash());
-	if (sound_hashes || sound_levels)
+	if (sound_hashes || sound_levels || sound_wav)
 	{
 		s32_board.time_passes(s32_board.cycles);
 		sound_chips_end_frame(s32_board.cycles);
+		if (sound_wav)
+			write_wav();
 		if (sound_hashes)
 			fprintf(sound_hashes, "%" PRIu64 " %016" PRIx64 " %016" PRIx64 "\n", FRAMES_RUN - 1,
 				sound_chips_frame_hash(), sound_board_state_hash());
@@ -422,7 +481,7 @@ static bool load_actions(const char *path)
 
 static bool actions_hold_start, actions_hold_button;    /* player 1's start and button, held by the actions */
 
-/* The frame's actions, as the window port hands them over (ports/sdl2/main.c): start is player 1's start
+/* The frame's actions, as the window port hands them over (ports/sdl/main.c): start is player 1's start
    button too outside a game (or with their start prompt up), jump their button, the directions roll their
    trackball */
 static void apply_actions(uint64_t frame)
@@ -563,6 +622,7 @@ int main(int argc, char **argv)
 	const char *video_hashes_path = NULL;
 	static const char *sound_hashes_path;    /* (static: read after a LAN restart's longjmp) */
 	static const char *sound_levels_path;
+	static const char *sound_wav_path;
 	const char *sprite_census_path = NULL;
 	const char *tile_census_path = NULL;
 	static const char *memory_census_path;
@@ -617,6 +677,8 @@ int main(int argc, char **argv)
 			sound_hashes_path = argv[++index];
 		else if (strcmp(argv[index], "--sound-levels") == 0 && index + 1 < argc)
 			sound_levels_path = argv[++index];
+		else if (strcmp(argv[index], "--sound-wav") == 0 && index + 1 < argc)
+			sound_wav_path = argv[++index];
 		else if (strcmp(argv[index], "--sprite-census") == 0 && index + 1 < argc)
 			sprite_census_path = argv[++index];
 		else if (strcmp(argv[index], "--tile-census") == 0 && index + 1 < argc)
@@ -731,7 +793,7 @@ int main(int argc, char **argv)
 		}
 		s32_video_tile_observer = on_tile_shown;
 	}
-	if (sound_hashes_path || sound_levels_path || lan_sound)
+	if (sound_hashes_path || sound_levels_path || sound_wav_path || lan_sound)
 	{
 		s32_board.sound_rom = game_sound;
 		sound_chips_attach();
@@ -740,6 +802,8 @@ int main(int argc, char **argv)
 			sound_hashes = fopen(sound_hashes_path, "w");
 		if (sound_levels_path)
 			sound_levels = fopen(sound_levels_path, "w");
+		if (sound_wav_path && (sound_wav = fopen(sound_wav_path, "wb")) != NULL)
+			write_wav_header(sound_wav, 0);
 	}
 
 	s32_board.irq_changed = on_irq_changed;
@@ -793,6 +857,11 @@ int main(int argc, char **argv)
 		fclose(sound_hashes);
 	if (sound_levels)
 		fclose(sound_levels);
+	if (sound_wav)
+	{
+		write_wav_header(sound_wav, sound_wav_samples);    /* (the count, now that it is known) */
+		fclose(sound_wav);
+	}
 	if (sprite_census)
 		fclose(sprite_census);
 	free(census_seen);

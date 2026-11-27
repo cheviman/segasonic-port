@@ -1,5 +1,5 @@
-/* Who is whose in ports/sdl2/mice.c: build with any C compiler, `cc -DMICE_TEST -I ports/sdl2 tests/mice_test.c
-   ports/sdl2/mice.c -o mice_test`, and run it: it prints "mice: ok" or the first thing that is wrong */
+/* Who is whose in ports/sdl/mice.c: build with any C compiler, `cc -DMICE_TEST -I ports/sdl tests/mice_test.c
+   ports/sdl/mice.c -o mice_test`, and run it: it prints "mice: ok" or the first thing that is wrong */
 #include "mice.h"
 
 #include <stdio.h>

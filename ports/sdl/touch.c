@@ -4,7 +4,7 @@
  *                 picture or under it, and the actions the fingers on them hold
  *    Version:     0.1.0
  *    Created:     25-10-2026
- *    Modified:    07-11-2026
+ *    Modified:    27-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -119,7 +119,7 @@ static double pill_distance(double x, double y, double width, double height)
 /* A shape in white, its edge smooth: filled, or its ring alone; tinted when it is drawn */
 static SDL_Texture *make_shape(SDL_Renderer *renderer, int width, int height, bool edge_only)
 {
-	SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888);
+	SDL_Surface *surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_ARGB8888);
 	const double edge = EDGE * height;
 	SDL_Texture *texture;
 
@@ -135,23 +135,39 @@ static SDL_Texture *make_shape(SDL_Renderer *renderer, int width, int height, bo
 			((Uint32 *)((Uint8 *)surface->pixels + y * surface->pitch))[x] = cover << 24 | 0xFFFFFFu;
 		}
 	texture = SDL_CreateTextureFromSurface(renderer, surface);
-	SDL_FreeSurface(surface);
+	SDL_DestroySurface(surface);
 	if (texture)
 	{
 		SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
-		SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear);
+		SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
 	}
 	return texture;
+}
+
+/* The screen's dots an inch: Android's density (SDL 3's content scale of the display) times its 160; 0 unknown.
+   SDL 2's SDL_GetDisplayDPI is gone, and with it the screen's own measure: the density is the one Android lays its
+   own controls out by */
+static double screen_dots(void)
+{
+#ifdef SDL_PLATFORM_IOS
+	/* (iOS: the screen's points, 163 an inch on an iPhone and 132 on an iPad, times the pixels a point is) */
+	const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
+
+	return (SDL_IsTablet() ? 132.0 : 163.0) * (mode && mode->pixel_density > 0.0 ? mode->pixel_density : 1.0);
+#else
+	return 160.0 * SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
+#endif
 }
 
 void touch_open(SDL_Renderer *renderer, const char *base)
 {
 	const int pill_width = (int)lround(SHAPE_HEIGHT * buttons[BUTTON_START].width / buttons[BUTTON_START].height);
-	float dpi = 0.0f;
+	int count = 0;
+	const double dots = screen_dots();
 
-	if (SDL_GetDisplayDPI(0, &dpi, NULL, NULL) == 0 && dpi > 0.0f)
-		most_unit = dpi * MOST_UNIT_INCHES;
-	SDL_GetRendererOutputSize(renderer, &screen_width, &screen_height);
+	if (dots > 0.0)
+		most_unit = dots * MOST_UNIT_INCHES;
+	SDL_GetCurrentRenderOutputSize(renderer, &screen_width, &screen_height);
 	touch_layout(screen_width, screen_height, 0);
 	disc = make_shape(renderer, SHAPE_HEIGHT, SHAPE_HEIGHT, false);
 	ring = make_shape(renderer, SHAPE_HEIGHT, SHAPE_HEIGHT, true);
@@ -161,7 +177,8 @@ void touch_open(SDL_Renderer *renderer, const char *base)
 #ifdef SEGASONIC_TOUCH_TEST
 	shown = true;    /* (a computer's check: no touch screen) */
 #else
-	shown = SDL_GetNumTouchDevices() > 0;
+	SDL_free(SDL_GetTouchDevices(&count));    /* (SDL's list of the touch screens: how many) */
+	shown = count > 0;
 #endif
 }
 
@@ -269,36 +286,36 @@ void touch_event(const SDL_Event *event)
 
 	switch (event->type)
 	{
-		case SDL_FINGERDOWN:
+		case SDL_EVENT_FINGER_DOWN:
 			shown = true;
-			finger_down(event->tfinger.fingerId, event->tfinger.x * screen_width, event->tfinger.y * screen_height);
+			finger_down(event->tfinger.fingerID, event->tfinger.x * screen_width, event->tfinger.y * screen_height);
 			break;
-		case SDL_FINGERMOTION:
-			if ((slot = finger_slot(event->tfinger.fingerId, false)) < 0)
+		case SDL_EVENT_FINGER_MOTION:
+			if ((slot = finger_slot(event->tfinger.fingerID, false)) < 0)
 				break;
 			if (fingers[slot].role == FINGER_STICK)
 				lean_to(event->tfinger.x * screen_width, event->tfinger.y * screen_height);
 			else
 				fingers[slot].button = button_at(event->tfinger.x * screen_width, event->tfinger.y * screen_height);
 			break;
-		case SDL_FINGERUP:
-			if ((slot = finger_slot(event->tfinger.fingerId, false)) < 0)
+		case SDL_EVENT_FINGER_UP:
+			if ((slot = finger_slot(event->tfinger.fingerID, false)) < 0)
 				break;
 			if (fingers[slot].role == FINGER_STICK)
 				lean_x = lean_y = 0.0;
 			fingers[slot].role = FINGER_FREE;
 			break;
-		case SDL_KEYDOWN:
+		case SDL_EVENT_KEY_DOWN:
 #ifndef SEGASONIC_TOUCH_TEST    /* (a computer's check: the keyboard drives the game to them) */
-			if (event->key.keysym.scancode != SDL_SCANCODE_AC_BACK)    /* (Android's back: the screen's too) */
+			if (event->key.scancode != SDL_SCANCODE_AC_BACK)    /* (Android's back: the screen's too) */
 				shown = false;
 #endif
 			break;
-		case SDL_CONTROLLERBUTTONDOWN:
+		case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
 			shown = false;
 			break;
-		case SDL_CONTROLLERAXISMOTION:
-			if (abs(event->caxis.value) > TOUCH_STICK_FULL / 2)
+		case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+			if (abs(event->gaxis.value) > TOUCH_STICK_FULL / 2)
 				shown = false;
 			break;
 		default:
@@ -334,14 +351,14 @@ void touch_stick(int *x, int *y)
 static void draw_shape(SDL_Renderer *renderer, SDL_Texture *shape, double x, double y, double width, double height,
 	Uint8 grey, Uint8 alpha)
 {
-	const SDL_Rect where = { (int)lround(x - width / 2), (int)lround(y - height / 2), (int)lround(width),
-		(int)lround(height) };
+	const SDL_FRect where = { (float)x - (float)width / 2.0f, (float)y - (float)height / 2.0f, (float)width,
+		(float)height };
 
 	if (!shape)
 		return;
 	SDL_SetTextureColorMod(shape, grey, grey, grey);
 	SDL_SetTextureAlphaMod(shape, alpha);
-	SDL_RenderCopy(renderer, shape, NULL, &where);
+	SDL_RenderTexture(renderer, shape, NULL, &where);
 }
 
 void touch_draw(SDL_Renderer *renderer)

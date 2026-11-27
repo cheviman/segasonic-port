@@ -86,10 +86,13 @@ static bool mouse_held;
 static bool mouse_click_taken;      /* that click, until its buttons are let go */
 #endif
 
-#include <SDL.h>
-#ifdef _WIN32
+#include "port_sdl.h"           /* SDL 3; or its names over a device's own SDL 2 (sdl2_layer.h) */
+#ifndef SEGASONIC_SDL2_LAYER
+#include <SDL3/SDL_main.h> /* (the program's start as each platform has it: WinMain, Android's activity) */
+#endif
+#ifndef SEGASONIC_HANDHELD
 #include "mice.h"
-#define SEPARATE_MICE 1    /* (each mouse is a player's trackball: mice.h) */
+#define SEPARATE_MICE 1    /* (each mouse SDL tells apart is a player's trackball: mice.h) */
 #endif
 
 #ifdef __SWITCH__
@@ -134,14 +137,19 @@ static SDL_Renderer *renderer;
 static SDL_Texture *texture;
 static SDL_Texture *scaled;           /* smooth pixels: the picture a whole number of times its size */
 static int scaled_times;
-static SDL_AudioDeviceID audio;
-static SDL_GameController *controllers[PLAYERS];
+static SDL_AudioStream *audio;    /* the frames' sound on its way to the default device (SDL converts it) */
+static SDL_Gamepad *controllers[PLAYERS];
 static double mouse_rest[PLAYERS][2];    /* the fractions of a count the mouse has moved and not handed on */
 static double hand[PLAYERS][2];          /* counts the mouse has moved this frame */
 static bool hand_moved[PLAYERS];
 static double ball[PLAYERS][2];          /* counts a frame the ball turns */
 #ifdef SEPARATE_MICE
-static bool mice_listening;              /* Raw Input tells the mice apart (mice_open) */
+/* The buttons each mouse holds, by SDL's id of it: mice_event takes a mouse's whole state */
+static struct
+{
+	SDL_MouseID id;     /* 0: free */
+	unsigned down;      /* as mice.h's: 1 the left, 2 the right, 4 the middle, 8 and 16 the side ones */
+} mouse_buttons[MICE_DEVICES];
 #endif
 static uint64_t next_frame;           /* performance counter value the next frame waits for */
 static bool vsync_on;                 /* the renderer shows each frame at the screen's refresh (apply_vsync) */
@@ -174,8 +182,8 @@ typedef struct resampler
 
 static resampler chips[3];
 
-static void controller_added(int which);
-static void log_joystick(int index);
+static void controller_added(SDL_JoystickID which);
+static void log_joystick(SDL_JoystickID which);
 static void log_press(const SDL_Event *event);
 
 /* ---- files ---- */
@@ -304,9 +312,9 @@ static double window_scale_that_fits(void)
 {
 	SDL_Rect usable;
 	double scale = settings.window_scale;
-	const int display = window ? SDL_GetWindowDisplayIndex(window) : 0;
+	const SDL_DisplayID display = window ? SDL_GetDisplayForWindow(window) : 0;
 
-	if (SDL_GetDisplayUsableBounds(display < 0 ? 0 : display, &usable) != 0)
+	if (!SDL_GetDisplayUsableBounds(display ? display : SDL_GetPrimaryDisplay(), &usable))
 		return scale;
 	while (scale > 1.0 && (picture_width() * scale > usable.w - WINDOW_EDGES
 		|| S32_VIDEO_HEIGHT * scale > usable.h - WINDOW_EDGES))
@@ -338,7 +346,7 @@ static void make_crt_overlay(int width, int height)
 	crt_overlay = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
 	crt_width = width;
 	crt_height = height;
-	if (!crt_overlay || SDL_LockTexture(crt_overlay, NULL, (void **)&pixels, &pitch) != 0)
+	if (!crt_overlay || !SDL_LockTexture(crt_overlay, NULL, (void **)&pixels, &pitch))
 		return;
 	for (int y = 0; y < height; y++)
 	{
@@ -377,7 +385,8 @@ static void open_backdrop(void)
 	if (!backdrop)
 		return;
 	SDL_UpdateTexture(backdrop, NULL, pixels, CONSOLE_BACKDROP_WIDTH * (int)sizeof(uint32_t));
-	SDL_SetTextureScaleMode(backdrop, SDL_ScaleModeNearest);
+	SDL_SetTextureScaleMode(backdrop, SDL_SCALEMODE_NEAREST);
+	SDL_SetTextureBlendMode(backdrop, SDL_BLENDMODE_NONE);
 }
 #endif
 
@@ -398,10 +407,10 @@ static void clear_screen(const SDL_Rect *shown, double scale, int out_width, int
 		for (double y = first_y; y < out_height; y += page_height)
 			for (double x = first_x; x < out_width; x += page_width)
 			{
-				const SDL_Rect page = { (int)lround(x), (int)lround(y), (int)(lround(x + page_width) - lround(x)),
-					(int)(lround(y + page_height) - lround(y)) };
+				const SDL_FRect page = { (float)lround(x), (float)lround(y), (float)(lround(x + page_width) - lround(x)),
+					(float)(lround(y + page_height) - lround(y)) };
 
-				SDL_RenderCopy(renderer, backdrop, NULL, &page);
+				SDL_RenderTexture(renderer, backdrop, NULL, &page);
 			}
 	}
 #else
@@ -427,6 +436,7 @@ static void present(const uint32_t *pixels, int width, bool game_frame)
 {
 	SDL_Rect source = { 0, 0, width, S32_VIDEO_HEIGHT };
 	SDL_Rect shown;
+	SDL_FRect from, to;    /* ('source' and 'shown' as SDL draws with them) */
 	int out_width = 0, out_height = 0;
 	double scale;
 
@@ -437,7 +447,7 @@ static void present(const uint32_t *pixels, int width, bool game_frame)
 		source.x = (width - picture_width()) / 2;
 		source.w = width = picture_width();
 	}
-	SDL_GetRendererOutputSize(renderer, &out_width, &out_height);
+	SDL_GetRenderOutputSize(renderer, &out_width, &out_height);
 #ifdef SEGASONIC_TOUCH
 	follow_screen(out_width, out_height);    /* (a Fold opened or closed: its picture, from the next frame) */
 #endif
@@ -455,44 +465,46 @@ static void present(const uint32_t *pixels, int width, bool game_frame)
 		touch_layout(out_width, out_height, room);
 	}
 #endif
+	SDL_RectToFRect(&source, &from);
+	SDL_RectToFRect(&shown, &to);
 	/* plain bilinear: the picture straight to the window, softened all the way */
-	SDL_SetTextureScaleMode(texture, settings.bilinear && !settings.crt ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
+	SDL_SetTextureScaleMode(texture, settings.bilinear && !settings.crt ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
 	if (settings.bilinear && !settings.crt)
 	{
 		clear_screen(&shown, scale, out_width, out_height);
-		SDL_RenderCopy(renderer, texture, &source, &shown);
+		SDL_RenderTexture(renderer, texture, &from, &to);
 	}
 	else if (settings.smooth || settings.crt)
 	{
 		const int times = SDL_max(1, (int)scale);
-		SDL_Rect whole = { 0, 0, width * times, S32_VIDEO_HEIGHT * times };
+		const SDL_FRect whole = { 0.0f, 0.0f, (float)(width * times), (float)(S32_VIDEO_HEIGHT * times) };
 
 		if (!scaled || scaled_times != times)
 		{
 			if (scaled)
 				SDL_DestroyTexture(scaled);
-			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 			scaled = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET,
 				S32_VIDEO_MAX_WIDTH * times, S32_VIDEO_HEIGHT * times);
-			SDL_SetTextureScaleMode(scaled, SDL_ScaleModeLinear);
+			SDL_SetTextureScaleMode(scaled, SDL_SCALEMODE_LINEAR);
+			SDL_SetTextureBlendMode(scaled, SDL_BLENDMODE_NONE);    /* (SDL 3 would blend a target with alpha) */
 			scaled_times = times;
 		}
 		SDL_SetRenderTarget(renderer, scaled);
-		SDL_RenderCopy(renderer, texture, &source, &whole);
+		SDL_RenderTexture(renderer, texture, &from, &whole);
 		SDL_SetRenderTarget(renderer, NULL);
 		clear_screen(&shown, scale, out_width, out_height);
-		SDL_RenderCopy(renderer, scaled, &whole, &shown);
+		SDL_RenderTexture(renderer, scaled, &whole, &to);
 		if (settings.crt)
 		{
 			make_crt_overlay(shown.w, shown.h);
 			if (crt_overlay)
-				SDL_RenderCopy(renderer, crt_overlay, NULL, &shown);
+				SDL_RenderTexture(renderer, crt_overlay, NULL, &to);
 		}
 	}
 	else
 	{
 		clear_screen(&shown, scale, out_width, out_height);
-		SDL_RenderCopy(renderer, texture, &source, &shown);
+		SDL_RenderTexture(renderer, texture, &from, &to);
 	}
 #ifdef SEGASONIC_TOUCH
 	touch_draw(renderer);    /* (over the picture: the touch screen's controls) */
@@ -509,7 +521,7 @@ static void present(const uint32_t *pixels, int width, bool game_frame)
 
 typedef struct
 {
-	int what;      /* an SDL_Scancode or an SDL_GameControllerButton */
+	int what;      /* an SDL_Scancode or an SDL_GamepadButton */
 	uint8_t row, column, tiles;    /* where in the sheet, and how many tiles wide */
 } prompt;
 
@@ -550,12 +562,12 @@ static const prompt key_prompts[] = {
 };
 
 static const prompt button_prompts[] = {
-	{ SDL_CONTROLLER_BUTTON_A, 0, 4, 1 }, { SDL_CONTROLLER_BUTTON_B, 0, 5, 1 },
-	{ SDL_CONTROLLER_BUTTON_X, 0, 6, 1 }, { SDL_CONTROLLER_BUTTON_Y, 0, 7, 1 },
-	{ SDL_CONTROLLER_BUTTON_DPAD_UP, 1, 1, 1 }, { SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 1, 2, 1 },
-	{ SDL_CONTROLLER_BUTTON_DPAD_DOWN, 1, 3, 1 }, { SDL_CONTROLLER_BUTTON_DPAD_LEFT, 1, 4, 1 },
-	{ SDL_CONTROLLER_BUTTON_BACK, 18, 4, 1 }, { SDL_CONTROLLER_BUTTON_START, 18, 5, 1 },
-	{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER, 18, 7, 1 }, { SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 18, 8, 1 },
+	{ SDL_GAMEPAD_BUTTON_SOUTH, 0, 4, 1 }, { SDL_GAMEPAD_BUTTON_EAST, 0, 5, 1 },
+	{ SDL_GAMEPAD_BUTTON_WEST, 0, 6, 1 }, { SDL_GAMEPAD_BUTTON_NORTH, 0, 7, 1 },
+	{ SDL_GAMEPAD_BUTTON_DPAD_UP, 1, 1, 1 }, { SDL_GAMEPAD_BUTTON_DPAD_RIGHT, 1, 2, 1 },
+	{ SDL_GAMEPAD_BUTTON_DPAD_DOWN, 1, 3, 1 }, { SDL_GAMEPAD_BUTTON_DPAD_LEFT, 1, 4, 1 },
+	{ SDL_GAMEPAD_BUTTON_BACK, 18, 4, 1 }, { SDL_GAMEPAD_BUTTON_START, 18, 5, 1 },
+	{ SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, 18, 7, 1 }, { SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, 18, 8, 1 },
 };
 
 #define PROMPT_SIZE  16
@@ -573,8 +585,8 @@ static void load_prompts(const char *base)
 	loaded = SDL_LoadBMP(path);
 	if (!loaded)
 		return;    /* (CONTROLS then shows the names alone) */
-	prompt_sheet = SDL_ConvertSurfaceFormat(loaded, SDL_PIXELFORMAT_ARGB8888, 0);
-	SDL_FreeSurface(loaded);
+	prompt_sheet = SDL_ConvertSurface(loaded, SDL_PIXELFORMAT_ARGB8888);
+	SDL_DestroySurface(loaded);
 }
 
 static const prompt *find_prompt(const prompt *list, size_t count, int what)
@@ -656,8 +668,11 @@ static void on_frame_shown(void)
 
 static void toggle_full_screen(void)
 {
-	settings.full_screen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) == 0;
-	SDL_SetWindowFullscreen(window, settings.full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+#ifdef __SWITCH__
+	return;    /* (the Switch's window is its screen: a USB keyboard's F11 or Alt+Enter leaves it as it is) */
+#endif
+	settings.full_screen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) == 0;
+	SDL_SetWindowFullscreen(window, settings.full_screen);
 	settings_save();
 }
 
@@ -725,11 +740,70 @@ static void roll_ball(int player, bool hand_on_ball)
 }
 
 #ifdef SEPARATE_MICE
-/* Whether each mouse is its own trackball: Raw Input has told a mouse apart, and sonic.ini does not say no.
-   Until then the window's mouse events are the mouse (a remote desktop, say, sends no raw ones) */
+/* Whether each mouse is its own trackball: SDL has told a mouse apart, and sonic.ini does not say no. Until
+   then the window's mouse events are the mouse (SDL tells the mice apart by the system's raw input, which the
+   relative mode turns on on Windows; a remote desktop, say, sends none) */
 static bool separate_mice_now(void)
 {
-	return mice_listening && settings.separate_mice && mice_seen();
+	return settings.separate_mice && mice_seen();
+}
+
+/* A mouse of its own: an id SDL gives one device (0 is the window's mouse, with no device told apart) */
+static bool mouse_of_its_own(SDL_MouseID id)
+{
+	return id != 0 && id != SDL_TOUCH_MOUSEID && id != SDL_PEN_MOUSEID;
+}
+
+/* The buttons of the mouse 'id' (a place for it where there is none yet) */
+static unsigned *buttons_of(SDL_MouseID id)
+{
+	int free_place = -1;
+
+	for (int place = 0; place < MICE_DEVICES; place++)
+	{
+		if (mouse_buttons[place].id == id)
+			return &mouse_buttons[place].down;
+		if (free_place < 0 && mouse_buttons[place].id == 0)
+			free_place = place;
+	}
+	if (free_place < 0)
+		free_place = 0;    /* (more mice than places: the first place's is forgotten) */
+	mouse_buttons[free_place].id = id;
+	mouse_buttons[free_place].down = 0;
+	return &mouse_buttons[free_place].down;
+}
+
+/* Each mouse's movement, buttons and leaving, to mice.c: who is whose, and each player's movement (roll_mice) */
+static void mouse_to_mice(const SDL_Event *event)
+{
+	static const unsigned bits[] = { 0, 1u, 4u, 2u, 8u, 16u };    /* SDL's buttons 1-5: left, middle, right, X1, X2 */
+
+	switch (event->type)
+	{
+		case SDL_EVENT_MOUSE_MOTION:
+			if (mouse_of_its_own(event->motion.which))
+				mice_event(event->motion.which, (int)lroundf(event->motion.xrel), (int)lroundf(event->motion.yrel),
+					false, *buttons_of(event->motion.which));
+			break;
+		case SDL_EVENT_MOUSE_BUTTON_DOWN:
+		case SDL_EVENT_MOUSE_BUTTON_UP:
+			if (mouse_of_its_own(event->button.which) && event->button.button >= 1 && event->button.button <= 5)
+			{
+				unsigned *down = buttons_of(event->button.which);
+
+				*down = event->button.down ? *down | bits[event->button.button] : *down & ~bits[event->button.button];
+				mice_event(event->button.which, 0, 0, true, *down);
+			}
+			break;
+		case SDL_EVENT_MOUSE_REMOVED:
+			mice_remove(event->mdevice.which);
+			for (int place = 0; place < MICE_DEVICES; place++)
+				if (mouse_buttons[place].id == event->mdevice.which)
+					mouse_buttons[place].id = 0;
+			break;
+		default:
+			break;
+	}
 }
 #endif
 
@@ -851,15 +925,15 @@ static void fix_settings(void)
 	{
 		/* (a phone's by its screen's shape, room_under, as the screen is now: a Fold's opened or closed; the
 		   renderer's once there is one, before it the display's mode) */
-		SDL_DisplayMode mode;
+		const SDL_DisplayMode *mode = renderer ? NULL : SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
 		int width = 0, height = 0;
 
 		if (renderer)
-			SDL_GetRendererOutputSize(renderer, &width, &height);
-		else if (SDL_GetCurrentDisplayMode(0, &mode) == 0)
+			SDL_GetRenderOutputSize(renderer, &width, &height);
+		else if (mode)
 		{
-			width = mode.w;
-			height = mode.h;
+			width = mode->w;
+			height = mode->h;
 		}
 		settings.wide = wide_for_screen(width, height);
 	}
@@ -878,13 +952,13 @@ static void fix_settings(void)
 /* VSYNC (OPTIONS > VIDEO, segasonic.ini): the renderer shows each frame at the screen's refresh. The game keeps
    its own pace, the board's 60 frames a second (wait_for_frame): a faster screen (120 Hz) shows a frame twice, a
    frame a frame late is left out (frame_behind). A device's screen keeps the system's own refresh (and the
-   Anbernic's SDL 2.0.12 has no SDL_RenderSetVSync) */
+   Anbernic's SDL 2.0.12 has no SDL_SetRenderVSync) */
 static void apply_vsync(void)
 {
 #ifndef SEGASONIC_HANDHELD
 	if (renderer && settings.vsync != vsync_on)
 	{
-		vsync_on = SDL_RenderSetVSync(renderer, settings.vsync ? 1 : 0) == 0 ? settings.vsync : false;
+		vsync_on = SDL_SetRenderVSync(renderer, settings.vsync ? 1 : 0) ? settings.vsync : false;
 		fprintf(stderr, "vsync: %s\n", vsync_on ? "on" : "off");
 	}
 #endif
@@ -897,11 +971,11 @@ static void apply_settings(void)
 	fix_settings();
 	set_smooth(settings.smooth);
 #else
-	const bool full = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+	const bool full = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
 
 	set_smooth(settings.smooth);
 	if (full != settings.full_screen)
-		SDL_SetWindowFullscreen(window, settings.full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+		SDL_SetWindowFullscreen(window, settings.full_screen);
 #ifndef SEGASONIC_TOUCH_TEST    /* (the touch controls' check: the window is a phone's screen, the shape it is given) */
 	if (settings.window_scale != shown_scale || picture_width() != shown_width)
 	{
@@ -925,7 +999,7 @@ static void apply_settings(void)
 static void android_event(const SDL_Event *event)
 {
 	touch_event(event);
-	if (event->type == SDL_APP_WILLENTERBACKGROUND)
+	if (event->type == SDL_EVENT_WILL_ENTER_BACKGROUND)
 		save_eeprom();
 }
 #endif
@@ -937,6 +1011,9 @@ static void read_events(void)
 	while (SDL_PollEvent(&event))
 	{
 		log_press(&event);
+#ifdef SEPARATE_MICE
+		mouse_to_mice(&event);
+#endif
 #ifdef SEGASONIC_HANDHELD_KEYS
 		handheld_event(&event);
 #endif
@@ -945,82 +1022,82 @@ static void read_events(void)
 #endif
 		switch (event.type)
 		{
-			case SDL_QUIT:
+			case SDL_EVENT_QUIT:
 				longjmp(finished, 1);
 #if defined(__ANDROID__) && defined(SEGASONIC_CONSOLE)
-			case SDL_APP_WILLENTERBACKGROUND:
+			case SDL_EVENT_WILL_ENTER_BACKGROUND:
 				if (console_in_game())
 					pause_requested = true;    /* (back in the game: it waits, paused) */
 				break;
 #endif
-			case SDL_MOUSEMOTION:
+			case SDL_EVENT_MOUSE_MOTION:
 #ifdef SEGASONIC_CONSOLE
 				if (!mouse_held)
 					break;
 #endif
 #ifdef SEPARATE_MICE
 				if (separate_mice_now())
-					break;    /* (each mouse's own movement comes from Raw Input: roll_mice) */
+					break;    /* (each mouse's own movement went to mice.c: roll_mice) */
 #endif
 				/* the board's X counts the other way (MAME reverses it) */
 				hand[0][0] -= event.motion.xrel * settings.mouse_speed;
 				hand[0][1] += event.motion.yrel * settings.mouse_speed;
 				hand_moved[0] = true;
 				break;
-			case SDL_KEYDOWN:
+			case SDL_EVENT_KEY_DOWN:
 				if (event.key.repeat)
 					break;
 #ifdef SEGASONIC_CONSOLE
 				if (console_controls_waiting() >= 0)
 				{
 					/* CONTROLS waits for a key: this one (Escape leaves the action as it was) */
-					if (event.key.keysym.sym != SDLK_ESCAPE)
-						actions_bind_key(console_controls_player(), console_controls_waiting(), event.key.keysym.scancode);
+					if (event.key.key != SDLK_ESCAPE)
+						actions_bind_key(console_controls_player(), console_controls_waiting(), event.key.scancode);
 					console_controls_bound();
 					bound_now = true;
 					break;
 				}
 #endif
 #ifndef SEGASONIC_CONSOLE
-				if (event.key.keysym.sym == SDLK_ESCAPE)
+				if (event.key.key == SDLK_ESCAPE)
 					longjmp(finished, 1);    /* (the console's back and pause are actions: actions.c) */
 #endif
-				if (event.key.keysym.sym == SDLK_F11
-					|| (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)))
+				if (event.key.key == SDLK_F11
+					|| (event.key.key == SDLK_RETURN && (event.key.mod & SDL_KMOD_ALT)))
 					toggle_full_screen();
-				if (event.key.keysym.sym == SDLK_F3)
+				if (event.key.key == SDLK_F3)
 					toggle_smooth();
-				if (event.key.keysym.sym == SDLK_F4)
+				if (event.key.key == SDLK_F4)
 					toggle_ball_rolls_on();
 #ifdef SEGASONIC_CONSOLE
-				if ((event.key.keysym.sym == SDLK_F7 || event.key.keysym.sym == SDLK_F8) && !console_lan_playing())
-					console_debug_section(event.key.keysym.sym == SDLK_F8 ? 1 : -1);    /* (not in a LAN game) */
+				if ((event.key.key == SDLK_F7 || event.key.key == SDLK_F8) && !console_lan_playing())
+					console_debug_section(event.key.key == SDLK_F8 ? 1 : -1);    /* (not in a LAN game) */
 #endif
-				if (event.key.keysym.sym == SDLK_F5 || event.key.keysym.sym == SDLK_F6)
-					change_mouse_speed(event.key.keysym.sym == SDLK_F6);
+				if (event.key.key == SDLK_F5 || event.key.key == SDLK_F6)
+					change_mouse_speed(event.key.key == SDLK_F6);
 				break;
 #ifdef SEGASONIC_CONSOLE
-			case SDL_MOUSEBUTTONDOWN:
+			case SDL_EVENT_MOUSE_BUTTON_DOWN:
 				if (!mouse_held)
 				{
 					mouse_held = true;
 					mouse_click_taken = true;
-					SDL_SetRelativeMouseMode(SDL_TRUE);
+					SDL_SetWindowRelativeMouseMode(window, true);
 				}
 				break;
-			case SDL_MOUSEBUTTONUP:
+			case SDL_EVENT_MOUSE_BUTTON_UP:
 				if (mouse_click_taken && SDL_GetMouseState(NULL, NULL) == 0)
 					mouse_click_taken = false;
 				break;
-			case SDL_CONTROLLERBUTTONDOWN:
+			case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
 				if (console_controls_waiting() >= 0)
 				{
 					actions_bind_button(console_controls_player(), console_controls_waiting(),
-						(SDL_GameControllerButton)event.cbutton.button);
+						(SDL_GamepadButton)event.gbutton.button);
 #ifdef SEGASONIC_HANDHELD
 					fprintf(stderr, "CONTROLS: player %d, action %d: %s\n", console_controls_player() + 1,
 						console_controls_waiting(),
-						SDL_GameControllerGetStringForButton((SDL_GameControllerButton)event.cbutton.button));
+						SDL_GetGamepadStringForButton((SDL_GamepadButton)event.gbutton.button));
 					log_written();
 #endif
 					console_controls_bound();
@@ -1028,18 +1105,18 @@ static void read_events(void)
 				}
 				break;
 #endif
-			case SDL_JOYDEVICEADDED:
+			case SDL_EVENT_JOYSTICK_ADDED:
 				log_joystick(event.jdevice.which);
 				break;
-			case SDL_CONTROLLERDEVICEADDED:
-				controller_added(event.cdevice.which);
+			case SDL_EVENT_GAMEPAD_ADDED:
+				controller_added(event.gdevice.which);
 				break;
-			case SDL_CONTROLLERDEVICEREMOVED:
+			case SDL_EVENT_GAMEPAD_REMOVED:
 				for (int player = 0; player < PLAYERS; player++)
 					if (controllers[player]
-						&& SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controllers[player])) == event.cdevice.which)
+						&& SDL_GetJoystickID(SDL_GetGamepadJoystick(controllers[player])) == event.gdevice.which)
 					{
-						SDL_GameControllerClose(controllers[player]);
+						SDL_CloseGamepad(controllers[player]);
 						controllers[player] = NULL;
 					}
 				break;
@@ -1126,10 +1203,10 @@ static void lan_controls(void)
 /* The left stick as the trackball's counts this frame: none within the dead zone about its middle (a stick that
    does not come back to it: issue 5, an Xbox controller's drift), and from the zone's edge out to the whole of
    STICK at the end of its travel, the way it leans kept */
-static void stick_lean(SDL_GameController *pad, double *x, double *y)
+static void stick_lean(SDL_Gamepad *pad, double *x, double *y)
 {
-	const double lean_x = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0;
-	const double lean_y = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0;
+	const double lean_x = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.0;
+	const double lean_y = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY) / 32767.0;
 	const double lean = sqrt(lean_x * lean_x + lean_y * lean_y);
 	const double dead = settings.stick_dead_zone / 100.0;
 	double scale;
@@ -1145,7 +1222,7 @@ static void stick_lean(SDL_GameController *pad, double *x, double *y)
 /* the state of every control once a frame, where the board reads them */
 static void on_controls_update(void)
 {
-	const Uint8 *keys = SDL_GetKeyboardState(NULL);
+	const bool *keys = SDL_GetKeyboardState(NULL);
 	Uint32 mouse = SDL_GetMouseState(NULL, NULL);
 	bool mouse_down[PLAYERS];
 	s32_inputs *input = &s32_board.input;
@@ -1154,10 +1231,6 @@ static void on_controls_update(void)
 #ifdef SEGASONIC_CONSOLE
 	if (!mouse_held || mouse_click_taken)
 		mouse = 0;    /* (the pointer's, or the click that took the mouse) */
-#endif
-#ifdef SEPARATE_MICE
-	if (mice_listening)
-		mice_update();
 #endif
 	roll_mice(mouse, mouse_down);
 #ifndef SEGASONIC_CONSOLE
@@ -1191,7 +1264,7 @@ static void on_controls_update(void)
 	}
 	for (int player = 0; player < PLAYERS; player++)
 	{
-		SDL_GameController *pad = controllers[player];
+		SDL_Gamepad *pad = controllers[player];
 
 		controls.roll_x[player] += (actions_holds(player, pad, ACTION_LEFT) - actions_holds(player, pad, ACTION_RIGHT))
 			* (int)lround(settings.key_roll);
@@ -1232,7 +1305,7 @@ static void on_controls_update(void)
 	controls.test = keys[SDL_SCANCODE_F2] != 0;
 	for (int player = 0; player < PLAYERS; player++)
 	{
-		SDL_GameController *pad = controllers[player];
+		SDL_Gamepad *pad = controllers[player];
 		double lean_x, lean_y;
 
 		if (!pad)
@@ -1241,9 +1314,9 @@ static void on_controls_update(void)
 		controls.roll_x[player] -= (int)lround(lean_x);
 		controls.roll_y[player] += (int)lround(lean_y);
 #ifndef SEGASONIC_CONSOLE
-		controls.button[player] |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A) != 0;
-		controls.start[player] |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START) != 0;
-		controls.coin[player] |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK) != 0;
+		controls.button[player] |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH);
+		controls.start[player] |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_START);
+		controls.coin[player] |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_BACK);
 #endif
 	}
 #ifdef SEGASONIC_CONSOLE
@@ -1340,8 +1413,8 @@ static void play_frame(void)
 	}
 	for (int chip = 0; chip < 3; chip++)
 		drop_used(&chips[chip]);
-	if (audio && SDL_GetQueuedAudioSize(audio) < (Uint32)(OUTPUT_RATE / 60 * 4 * QUEUE_FRAMES_MAX))
-		SDL_QueueAudio(audio, mix, (Uint32)(made * 2 * sizeof(int16_t)));
+	if (audio && SDL_GetAudioStreamQueued(audio) < OUTPUT_RATE / 60 * 4 * QUEUE_FRAMES_MAX)
+		SDL_PutAudioStreamData(audio, mix, (int)(made * 2 * sizeof(int16_t)));
 }
 
 #ifdef SEGASONIC_CONSOLE
@@ -1386,7 +1459,7 @@ static int pause_item_at(float x, float y)
 	int out_width = 0, out_height = 0;
 	double column, row;
 
-	SDL_GetRendererOutputSize(renderer, &out_width, &out_height);
+	SDL_GetRenderOutputSize(renderer, &out_width, &out_height);
 	if (picture_shown.w <= 0 || picture_shown.h <= 0)
 		return -1;
 	column = (x * out_width - picture_shown.x) / picture_shown.w;
@@ -1418,9 +1491,9 @@ static void run_pause(void)
 	save_handheld_settings();
 #endif
 	mouse_held = false;    /* (a click takes it again) */
-	SDL_SetRelativeMouseMode(SDL_FALSE);
+	SDL_SetWindowRelativeMouseMode(window, false);
 	if (audio)
-		SDL_PauseAudioDevice(audio, 1);
+		SDL_PauseAudioStreamDevice(audio);
 #ifdef SEGASONIC_PAUSE_EXIT
 	console_pause_choice(choice);
 #endif
@@ -1430,7 +1503,7 @@ static void run_pause(void)
 	{
 		while (SDL_PollEvent(&event))
 		{
-			if (event.type == SDL_QUIT)
+			if (event.type == SDL_EVENT_QUIT)
 				longjmp(finished, 1);
 #ifdef SEGASONIC_HANDHELD_KEYS
 			handheld_event(&event);
@@ -1438,24 +1511,24 @@ static void run_pause(void)
 #ifdef __ANDROID__
 			android_event(&event);
 #endif
-			if (event.type == SDL_KEYDOWN && !event.key.repeat && (event.key.keysym.sym == SDLK_F11
-				|| (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT))))
+			if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && (event.key.key == SDLK_F11
+				|| (event.key.key == SDLK_RETURN && (event.key.mod & SDL_KMOD_ALT))))
 			{
 				toggle_full_screen();
 				present(pause_picture, width, false);
 			}
-			if (event.type == SDL_WINDOWEVENT)
+			if (event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST)
 				present(pause_picture, width, false);
 #ifdef SEGASONIC_TOUCH
-			if (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERUP)
+			if (event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_UP)
 				present(pause_picture, width, false);    /* (START lit while a finger is on it) */
 #endif
 #ifdef SEGASONIC_PAUSE_EXIT
-			if (event.type == SDL_FINGERDOWN && pause_item_at(event.tfinger.x, event.tfinger.y) >= 0)
+			if (event.type == SDL_EVENT_FINGER_DOWN && pause_item_at(event.tfinger.x, event.tfinger.y) >= 0)
 				picked = pause_item_at(event.tfinger.x, event.tfinger.y);    /* (a choice touched: picked) */
 #endif
 #ifdef __ANDROID__
-			if (event.type == SDL_KEYDOWN && !event.key.repeat && event.key.keysym.scancode == SDL_SCANCODE_AC_BACK)
+			if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.scancode == SDL_SCANCODE_AC_BACK)
 				paused = false;    /* (Android's back goes on, as CONTINUE does: TMNT's) */
 #endif
 		}
@@ -1482,12 +1555,12 @@ static void run_pause(void)
 		if (picked == CONSOLE_PAUSE_CONTINUE && !(actions_held() & ACTION_BIT(ACTION_ACCEPT)))
 			paused = false;
 #endif
-		SDL_Delay(16);
+		wait_for_frame();    /* (the frames' pace, as everywhere: never a sleep of its own) */
 	}
 	if (audio)
 	{
-		SDL_ClearQueuedAudio(audio);
-		SDL_PauseAudioDevice(audio, 0);
+		SDL_ClearAudioStream(audio);
+		SDL_ResumeAudioStreamDevice(audio);
 	}
 	next_frame = SDL_GetPerformanceCounter();    /* (the time paused is not owed) */
 }
@@ -1545,14 +1618,14 @@ static void handheld_event(const SDL_Event *event)
 {
 	int step = 0;
 
-	if (event->type == SDL_JOYBUTTONDOWN && event->jbutton.button == HANDHELD_MENU_BUTTON)
+	if (event->type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && event->jbutton.button == HANDHELD_MENU_BUTTON)
 		longjmp(finished, 1);
-	if (event->type == SDL_KEYDOWN && !event->key.repeat)
+	if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat)
 	{
-		fprintf(stderr, "key: %s\n", SDL_GetKeyName(event->key.keysym.sym));
-		step = event->key.keysym.sym == SDLK_VOLUMEUP ? 1 : (event->key.keysym.sym == SDLK_VOLUMEDOWN ? -1 : 0);
+		fprintf(stderr, "key: %s\n", SDL_GetKeyName(event->key.key));
+		step = event->key.key == SDLK_VOLUMEUP ? 1 : (event->key.key == SDLK_VOLUMEDOWN ? -1 : 0);
 	}
-	if (event->type == SDL_JOYBUTTONDOWN && event->jbutton.button > 12)
+	if (event->type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && event->jbutton.button > 12)
 		fprintf(stderr, "joystick button: %d\n", event->jbutton.button);    /* (one the mapping has not) */
 	if (step)
 	{
@@ -1576,29 +1649,25 @@ static void save_handheld_settings(void)
 
 static void log_device(void)
 {
-	SDL_version linked;
-	SDL_RendererInfo info;
+	const int version = SDL_GetVersion();
 	int width = 0, height = 0;
 
-	SDL_GetVersion(&linked);
-	fprintf(stderr, "SDL %d.%d.%d, video %s, audio %s\n", linked.major, linked.minor, linked.patch,
-		SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none",
+	fprintf(stderr, "SDL %d.%d.%d, video %s, audio %s\n", SDL_VERSIONNUM_MAJOR(version), SDL_VERSIONNUM_MINOR(version),
+		SDL_VERSIONNUM_MICRO(version), SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none",
 		SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "none");
-	if (renderer && SDL_GetRendererInfo(renderer, &info) == 0)
+	if (renderer)
 	{
-		SDL_GetRendererOutputSize(renderer, &width, &height);
-		fprintf(stderr, "renderer %s, screen %d x %d\n", info.name, width, height);
+		SDL_GetRenderOutputSize(renderer, &width, &height);
+		fprintf(stderr, "renderer %s, screen %d x %d\n", SDL_GetRendererName(renderer), width, height);
 	}
-	for (int index = 0; index < SDL_NumJoysticks(); index++)
-	{
-		char guid[64];
-
-		SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(index), guid, sizeof(guid));
-		fprintf(stderr, "joystick %d: %s, %s, %s\n", index, SDL_JoystickNameForIndex(index), guid,
-			SDL_IsGameController(index) ? "a game controller" : "no game controller mapping");
-	}
+	/* (the joysticks: log_joystick, as SDL finds each one) */
 #ifdef SEGASONIC_TOUCH
-	fprintf(stderr, "touch screens: %d\n", SDL_GetNumTouchDevices());
+	{
+		int touch_screens = 0;
+
+		SDL_free(SDL_GetTouchDevices(&touch_screens));
+		fprintf(stderr, "touch screens: %d\n", touch_screens);
+	}
 #endif
 	log_written();
 }
@@ -1656,7 +1725,7 @@ static void lan_restart(void)
 	for (int chip = 0; chip < 3; chip++)
 		chips[chip].count = 0, chips[chip].position = 0.0;
 	if (audio)
-		SDL_ClearQueuedAudio(audio);
+		SDL_ClearAudioStream(audio);
 	SDL_zero(controls);
 	SDL_zero(ball);
 	SDL_zero(hand);
@@ -1749,7 +1818,7 @@ static int fail(const char *what, const char *detail)
 /* ---- the game controllers ---- */
 
 #ifdef SEGASONIC_CONTROLLER_DB
-/* SDL_GameControllerDB's mappings for this platform (ports/sdl2/controllerdb, built in by CMakeLists.txt) */
+/* SDL_GameControllerDB's mappings for this platform (ports/sdl/controllerdb, built in by CMakeLists.txt) */
 extern const unsigned char segasonic_controller_db[];
 extern const size_t segasonic_controller_db_size;
 #endif
@@ -1768,6 +1837,7 @@ static void add_text(char **text, size_t *length, const char *more, size_t count
 }
 
 #ifndef SEGASONIC_HANDHELD
+static char *base_path(void);
 static char *saves_folder(void);
 
 /* gamecontrollerdb.txt, where the game keeps what it writes or else beside the executable: the mappings of
@@ -1780,7 +1850,7 @@ static void add_mappings_file(char **text, size_t *length)
 	const char *platform = SDL_GetPlatform();
 
 	folders[0] = saves_folder();
-	folders[1] = SDL_GetBasePath();
+	folders[1] = base_path();
 	for (int folder = 0; folder < 2; folder++)
 	{
 		FILE *file;
@@ -1856,18 +1926,18 @@ static void add_mappings(void)
    the first presses of keys and buttons, to tell a controller's button that comes as a key */
 #define INPUT_LOG_PRESSES   48
 
-static void log_joystick(int index)
+static void log_joystick(SDL_JoystickID which)
 {
 	char guid_text[33];
-	const SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(index);
-	const char *name = SDL_JoystickNameForIndex(index);
+	const SDL_GUID guid = SDL_GetJoystickGUIDForID(which);
+	const char *name = SDL_GetJoystickNameForID(which);
 	char *mapping;
 
-	SDL_JoystickGetGUIDString(guid, guid_text, sizeof(guid_text));
-	mapping = SDL_GameControllerMappingForGUID(guid);
-	fprintf(stderr, "joystick %d: %s, GUID %s, %s%s\n", index, name ? name : "(no name)", guid_text,
-		SDL_IsGameController(index) ? "a game controller: " : "no game controller (no mapping)",
-		SDL_IsGameController(index) && mapping ? mapping : "");
+	SDL_GUIDToString(guid, guid_text, sizeof(guid_text));
+	mapping = SDL_GetGamepadMappingForGUID(guid);
+	fprintf(stderr, "joystick %d: %s, GUID %s, %s%s\n", (int)which, name ? name : "(no name)", guid_text,
+		SDL_IsGamepad(which) ? "a game controller: " : "no game controller (no mapping)",
+		SDL_IsGamepad(which) && mapping ? mapping : "");
 	SDL_free(mapping);
 }
 
@@ -1877,12 +1947,12 @@ static void log_press(const SDL_Event *event)
 
 	if (presses >= INPUT_LOG_PRESSES)
 		return;
-	if (event->type == SDL_KEYDOWN && !event->key.repeat)
-		fprintf(stderr, "key %s (scancode %d)\n", SDL_GetKeyName(event->key.keysym.sym), (int)event->key.keysym.scancode);
-	else if (event->type == SDL_CONTROLLERBUTTONDOWN)
-		fprintf(stderr, "game controller %d: %s\n", (int)event->cbutton.which,
-			SDL_GameControllerGetStringForButton((SDL_GameControllerButton)event->cbutton.button));
-	else if (event->type == SDL_JOYBUTTONDOWN)
+	if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat)
+		fprintf(stderr, "key %s (scancode %d)\n", SDL_GetKeyName(event->key.key), (int)event->key.scancode);
+	else if (event->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
+		fprintf(stderr, "game controller %d: %s\n", (int)event->gbutton.which,
+			SDL_GetGamepadStringForButton((SDL_GamepadButton)event->gbutton.button));
+	else if (event->type == SDL_EVENT_JOYSTICK_BUTTON_DOWN)
 		fprintf(stderr, "joystick %d: button %d\n", (int)event->jbutton.which, (int)event->jbutton.button);
 	else
 		return;
@@ -1891,9 +1961,9 @@ static void log_press(const SDL_Event *event)
 }
 
 /* A TV's remote, which SDL takes for a game controller (the Shield's, Android TV's, Fire TV's: "... Remote") */
-static bool is_remote(SDL_GameController *pad)
+static bool is_remote(SDL_Gamepad *pad)
 {
-	const char *name = SDL_GameControllerName(pad);
+	const char *name = SDL_GetGamepadName(pad);
 
 	for (const char *at = name ? name : ""; *at; at++)
 		if ((at[0] | 0x20) == 'r' && (at[1] | 0x20) == 'e' && (at[2] | 0x20) == 'm' && (at[3] | 0x20) == 'o'
@@ -1904,18 +1974,18 @@ static bool is_remote(SDL_GameController *pad)
 
 /* A game controller plugged in: the first player without one, but a game controller before a TV's remote (TMNT's
    player's report: the Shield's remote, found first, took player 1 from his Xbox controller) */
-static void controller_added(int which)
+static void controller_added(SDL_JoystickID which)
 {
 	for (int player = 0; player < PLAYERS; player++)
 		if (!controllers[player])
 		{
-			controllers[player] = SDL_GameControllerOpen(which);
+			controllers[player] = SDL_OpenGamepad(which);
 			if (!controllers[player] || is_remote(controllers[player]))
 				return;
 			for (int before = 0; before < player; before++)
 				if (is_remote(controllers[before]))
 				{
-					SDL_GameController *remote = controllers[before];
+					SDL_Gamepad *remote = controllers[before];
 
 					controllers[before] = controllers[player];
 					controllers[player] = remote;
@@ -1925,6 +1995,14 @@ static void controller_added(int which)
 		}
 }
 
+/* The executable's folder as SDL finds it (SDL 3 keeps that text: a copy, which the caller frees with SDL_free) */
+static char *base_path(void)
+{
+	const char *base = SDL_GetBasePath();
+
+	return base ? SDL_strdup(base) : NULL;
+}
+
 /* Where the game keeps what it writes (its settings, the EEPROM): beside the executable on Windows, as it
    always was; elsewhere the user's own folder for the game (SDL_GetPrefPath: ~/.local/share/SegaSonic,
    ~/Library/Application Support/SegaSonic), as the executable's may not be written (an .app, /usr/bin).
@@ -1932,14 +2010,14 @@ static void controller_added(int which)
 static char *saves_folder(void)
 {
 #ifdef _WIN32
-	return SDL_GetBasePath();
+	return base_path();
 #elif defined(__SWITCH__)
 	mkdir(SWITCH_FOLDER, 0777);
 	return SDL_strdup(SWITCH_FOLDER "/");
 #elif defined(__ANDROID__)
 	return SDL_GetPrefPath("", "SegaSonic");    /* (the app's own folder, its internal storage) */
 #elif defined(SEGASONIC_HANDHELD)
-	return SDL_GetBasePath();    /* (a handheld's: the game's folder on its card) */
+	return base_path();    /* (a handheld's: the game's folder on its card) */
 #else
 	return SDL_GetPrefPath("", "SegaSonic");
 #endif
@@ -1950,17 +2028,17 @@ static char *saves_folder(void)
    on a computer is read */
 static int read_packed(void *packed, char *buffer, int size)
 {
-	return (int)SDL_RWread((SDL_RWops *)packed, buffer, 1, (size_t)size);
+	return (int)SDL_ReadIO((SDL_IOStream *)packed, buffer, (size_t)size);
 }
 
 static fpos_t seek_packed(void *packed, fpos_t offset, int whence)
 {
-	return (fpos_t)SDL_RWseek((SDL_RWops *)packed, (Sint64)offset, whence);    /* (RW_SEEK_* are SEEK_*) */
+	return (fpos_t)SDL_SeekIO((SDL_IOStream *)packed, (Sint64)offset, whence);    /* (RW_SEEK_* are SEEK_*) */
 }
 
 static int close_packed(void *packed)
 {
-	return SDL_RWclose((SDL_RWops *)packed);
+	return SDL_CloseIO((SDL_IOStream *)packed) ? 0 : -1;    /* (SDL 3's true where it went well; funopen's 0) */
 }
 #endif
 
@@ -1970,7 +2048,7 @@ static game_data_result load_assets(const char *base, const char *saves, char *p
 {
 	game_data_result result;
 #ifdef __ANDROID__
-	SDL_RWops *packed = SDL_RWFromFile(ASSETS_FILE, "rb");
+	SDL_IOStream *packed = SDL_IOFromFile(ASSETS_FILE, "rb");
 	FILE *input = packed ? funopen(packed, read_packed, NULL, seek_packed, close_packed) : NULL;
 
 	(void)base;
@@ -1979,7 +2057,7 @@ static game_data_result load_assets(const char *base, const char *saves, char *p
 	if (!input)
 	{
 		if (packed)
-			SDL_RWclose(packed);
+			SDL_CloseIO(packed);
 		return GAME_DATA_MISSING;
 	}
 	result = game_data_read(input);
@@ -2023,7 +2101,7 @@ static void read_options(int argc, char **argv)
    2 when the ROM set is not the one or the pack cannot be written */
 static int prepare(void)
 {
-	char *base = SDL_GetBasePath(), *saves = saves_folder();
+	char *base = base_path(), *saves = saves_folder();
 	char pack[1024];
 	const char *problem = NULL;
 	FILE *there;
@@ -2080,30 +2158,35 @@ int main(int argc, char **argv)
 #ifdef __ANDROID__
 	/* (what the game says goes to segasonic.log in the app's folder on the storage, Android/data/<the
 	   app>/files: stderr goes nowhere there) */
-	if (SDL_AndroidGetExternalStoragePath())
+	if (SDL_GetAndroidExternalStoragePath())
 	{
 		char log_path[1024];
 
-		snprintf(log_path, sizeof(log_path), "%s/segasonic.log", SDL_AndroidGetExternalStoragePath());
+		snprintf(log_path, sizeof(log_path), "%s/segasonic.log", SDL_GetAndroidExternalStoragePath());
 		freopen(log_path, "w", stderr);
 	}
 	fprintf(stderr, "SegaSonic: starting\n");
 	SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");    /* (back is the menus' back, actions.c, never the end) */
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");          /* (fingers are the touch controls, not the mouse) */
-	SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
+	/* (SDL 3 shows no accelerometer as a joystick: SDL 2 had to be told, SDL_HINT_ACCELEROMETER_AS_JOYSTICK) */
 	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 #endif
 #ifdef SEGASONIC_TOUCH_TEST
 	SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "1");    /* (a computer's check of the touch controls: the mouse a finger) */
 #endif
 	add_mappings();
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0)
+	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD))
 		return fail("SDL could not start.", SDL_GetError());
-	fprintf(stderr, "game controllers: %d mappings\n", SDL_GameControllerNumMappings());
+	{
+		int mappings = 0;
+
+		SDL_free(SDL_GetGamepadMappings(&mappings));
+		fprintf(stderr, "game controllers: %d mappings\n", mappings);
+	}
 #ifdef __SWITCH__
 	base = SDL_strdup("romfs:/");
 #else
-	base = SDL_GetBasePath();
+	base = base_path();
 #endif
 	saves = saves_folder();
 	snprintf(settings_path, sizeof(settings_path), "%s" FILE_NAME ".ini", saves ? saves : "");
@@ -2172,12 +2255,14 @@ int main(int argc, char **argv)
 	shown_scale = settings.window_scale;
 	shown_width = picture_width();
 #ifdef __SWITCH__
-	/* (the Switch's screen, 1280 x 720; docked, the system shows it at the TV's size) */
-	window = SDL_CreateWindow(WINDOW_TITLE, 0, 0, 1280, 720, 0);
+	/* (the Switch's screen, 1280 x 720; docked, the system shows it at the TV's size. OPENGL: devkitPro's SDL 3 loads
+	   EGL only for a window that asks for it, and its Switch window is an EGL surface always: without it
+	   SDL_CreateWindow fails, "EGL not initialized", TMNT's issue 27) */
+	window = SDL_CreateWindow(WINDOW_TITLE, 1280, 720, SDL_WINDOW_OPENGL);
 #else
-	window = SDL_CreateWindow(WINDOW_TITLE, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		(int)(picture_width() * window_scale_that_fits()), (int)(S32_VIDEO_HEIGHT * window_scale_that_fits()),
-		SDL_WINDOW_RESIZABLE | (settings.full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+	window = SDL_CreateWindow(WINDOW_TITLE, (int)(picture_width() * window_scale_that_fits()),
+		(int)(S32_VIDEO_HEIGHT * window_scale_that_fits()),
+		SDL_WINDOW_RESIZABLE | (settings.full_screen ? SDL_WINDOW_FULLSCREEN : 0));
 #endif
 #ifdef SEGASONIC_CONSOLE
 	if (window)
@@ -2187,22 +2272,21 @@ int main(int argc, char **argv)
 		SDL_Surface *icon = NULL;
 
 		if (console_window_icon(icon_pixels, game_sprites, GAME_SPRITES_SIZE, game_program))
-			icon = SDL_CreateRGBSurfaceWithFormatFrom(icon_pixels, CONSOLE_ICON_SIZE, CONSOLE_ICON_SIZE, 32,
-				CONSOLE_ICON_SIZE * 4, SDL_PIXELFORMAT_ARGB8888);
+			icon = SDL_CreateSurfaceFrom(CONSOLE_ICON_SIZE, CONSOLE_ICON_SIZE, SDL_PIXELFORMAT_ARGB8888, icon_pixels,
+				CONSOLE_ICON_SIZE * 4);
 		if (icon)
 		{
 			SDL_SetWindowIcon(window, icon);
-			SDL_FreeSurface(icon);
+			SDL_DestroySurface(icon);
 		}
 	}
 #endif
-#ifdef _WIN32
-	SDL_SetHint(SDL_HINT_RENDER_DRIVER, "direct3d11");    /* (SDL tries Direct3D 9 first; the others if 11 fails) */
-#endif
-	renderer = window ? SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED) : NULL;
-	if (window && !renderer)
-		renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+	/* The platform's first renderer that starts, SDL's own in software the last of them. On Windows that is Direct3D
+	   11, SDL 3's first there (SDL 2's was Direct3D 9, and the game asked for 11 by a hint, which kept SDL from trying
+	   the others if it failed). SDL_RENDER_DRIVER in the environment still chooses; the log says which one came */
+	renderer = window ? SDL_CreateRenderer(window, NULL) : NULL;
+	if (renderer)
+		fprintf(stderr, "renderer: %s\n", SDL_GetRendererName(renderer));
 	texture = renderer ? SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
 		S32_VIDEO_MAX_WIDTH, S32_VIDEO_HEIGHT) : NULL;
 	if (!texture)
@@ -2216,25 +2300,22 @@ int main(int argc, char **argv)
 #ifdef SEGASONIC_HANDHELD
 	log_device();
 #endif
-	SDL_RenderSetIntegerScale(renderer, SDL_FALSE);
-	SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
+	SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);    /* (SDL 3 makes its textures smooth, */
+	SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);      /* and blends those with alpha: the frames have none) */
 	apply_vsync();    /* (segasonic.ini's VSYNC, on at first) */
 #ifndef SEGASONIC_CONSOLE
-	SDL_SetRelativeMouseMode(SDL_TRUE);    /* (the arcade's trackball; the console's waits for a click) */
-#endif
-#ifdef SEPARATE_MICE
-	mice_listening = settings.separate_mice && mice_open(window);
+	SDL_SetWindowRelativeMouseMode(window, true);    /* (the arcade's trackball; the console's waits for a click) */
 #endif
 	show_mouse_speed();
 
 	SDL_zero(wanted);
 	wanted.freq = OUTPUT_RATE;
-	wanted.format = AUDIO_S16SYS;
+	wanted.format = SDL_AUDIO_S16;
 	wanted.channels = 2;
-	wanted.samples = 1024;
-	audio = SDL_OpenAudioDevice(NULL, 0, &wanted, NULL, 0);
+	SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "1024");    /* (the device's buffer, as SDL 2's was asked for) */
+	audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &wanted, NULL, NULL);
 	if (audio)
-		SDL_PauseAudioDevice(audio, 0);
+		SDL_ResumeAudioStreamDevice(audio);    /* (a stream's device starts paused) */
 	chips[0].step = chips[1].step = FM_RATE / OUTPUT_RATE;
 	chips[2].step = PCM_RATE / OUTPUT_RATE;
 
@@ -2254,7 +2335,7 @@ int main(int argc, char **argv)
 #ifdef __SWITCH__
 	s32_workers_start(2);
 #else
-	s32_workers_start(SDL_min(SDL_GetCPUCount() - 1, 3));
+	s32_workers_start(SDL_min(SDL_GetNumLogicalCPUCores() - 1, 3));
 #endif
 	fprintf(stderr, "video: %d threads beside the game's\n", s32_workers_count());
 	sound_chips_attach();
@@ -2289,7 +2370,7 @@ int main(int argc, char **argv)
 	fflush(stderr);
 #endif
 	if (audio)
-		SDL_CloseAudioDevice(audio);
+		SDL_DestroyAudioStream(audio);
 	SDL_Quit();
 #ifdef __SWITCH__
 	romfsExit();

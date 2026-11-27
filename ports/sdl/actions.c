@@ -4,7 +4,7 @@
  *                 this frame, and the file that keeps them (controls.ini)
  *    Version:     0.1.0
  *    Created:     19-10-2026
- *    Modified:    25-10-2026
+ *    Modified:    27-11-2026
  *    Author:      Sebastian Toyos
  *
  *    The defaults below; controls.ini, beside the executable, keeps what the console's CONTROLS screen
@@ -18,7 +18,7 @@
 #include <string.h>
 
 #define NO_KEY     SDL_SCANCODE_UNKNOWN
-#define NO_BUTTON  SDL_CONTROLLER_BUTTON_INVALID
+#define NO_BUTTON  SDL_GAMEPAD_BUTTON_INVALID
 #define STICK_DEAD 16000    /* how far the left stick goes before it counts as a direction */
 #define LINE_SIZE  256
 
@@ -57,11 +57,11 @@ static const SDL_Scancode default_keys[ACTION_PLAYERS][ACTIONS][ACTION_KEYS] = {
 	},
 };
 
-static const SDL_GameControllerButton default_buttons[ACTIONS] = {
-	[ACTION_UP] = SDL_CONTROLLER_BUTTON_DPAD_UP, [ACTION_DOWN] = SDL_CONTROLLER_BUTTON_DPAD_DOWN,
-	[ACTION_LEFT] = SDL_CONTROLLER_BUTTON_DPAD_LEFT, [ACTION_RIGHT] = SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
-	[ACTION_ACCEPT] = SDL_CONTROLLER_BUTTON_A, [ACTION_BACK] = SDL_CONTROLLER_BUTTON_B,
-	[ACTION_START] = SDL_CONTROLLER_BUTTON_START, [ACTION_JUMP] = SDL_CONTROLLER_BUTTON_A,
+static const SDL_GamepadButton default_buttons[ACTIONS] = {
+	[ACTION_UP] = SDL_GAMEPAD_BUTTON_DPAD_UP, [ACTION_DOWN] = SDL_GAMEPAD_BUTTON_DPAD_DOWN,
+	[ACTION_LEFT] = SDL_GAMEPAD_BUTTON_DPAD_LEFT, [ACTION_RIGHT] = SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
+	[ACTION_ACCEPT] = SDL_GAMEPAD_BUTTON_SOUTH, [ACTION_BACK] = SDL_GAMEPAD_BUTTON_EAST,
+	[ACTION_START] = SDL_GAMEPAD_BUTTON_START, [ACTION_JUMP] = SDL_GAMEPAD_BUTTON_SOUTH,
 };
 
 action_binding action_bindings[ACTION_PLAYERS][ACTIONS];
@@ -85,10 +85,10 @@ static void set_defaults(int player)
 	}
 }
 
-static bool stick_says(SDL_GameController *pad, int action)
+static bool stick_says(SDL_Gamepad *pad, int action)
 {
-	const int x = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX);
-	const int y = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
+	const int x = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
+	const int y = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
 
 	switch (action)
 	{
@@ -100,23 +100,23 @@ static bool stick_says(SDL_GameController *pad, int action)
 	}
 }
 
-bool actions_holds(int player, SDL_GameController *pad, int action)
+bool actions_holds(int player, SDL_Gamepad *pad, int action)
 {
-	const Uint8 *keys = SDL_GetKeyboardState(NULL);
+	const bool *keys = SDL_GetKeyboardState(NULL);
 	const action_binding *binding = &action_bindings[player][action];
 
 	for (int key = 0; key < ACTION_KEYS; key++)
 		if (binding->keys[key] != NO_KEY && keys[binding->keys[key]])
 			return true;
 	for (int button = 0; pad && button < ACTION_BUTTONS; button++)
-		if (binding->buttons[button] != NO_BUTTON && SDL_GameControllerGetButton(pad, binding->buttons[button]))
+		if (binding->buttons[button] != NO_BUTTON && SDL_GetGamepadButton(pad, binding->buttons[button]))
 			return true;
 	return false;
 }
 
-void actions_read(SDL_GameController *const *controllers)
+void actions_read(SDL_Gamepad *const *controllers)
 {
-	const bool alt = (SDL_GetModState() & KMOD_ALT) != 0;    /* (Alt+Enter is full screen, not an action) */
+	const bool alt = (SDL_GetModState() & SDL_KMOD_ALT) != 0;    /* (Alt+Enter is full screen, not an action) */
 	uint32_t now = 0;
 
 	for (int player = 0; player < ACTION_PLAYERS; player++)
@@ -222,7 +222,7 @@ static void read_line(int player, char *line)
 		if (next)
 			*next++ = 0;
 		if (*trimmed(part))
-			binding->buttons[slot++] = SDL_GameControllerGetButtonFromString(trimmed(part));
+			binding->buttons[slot++] = SDL_GetGamepadButtonFromString(trimmed(part));
 	}
 }
 
@@ -281,7 +281,7 @@ void actions_save(void)
 				if (binding->buttons[button] != NO_BUTTON)
 				{
 					fprintf(file, "%s %s", first ? "" : ",",
-						SDL_GameControllerGetStringForButton(binding->buttons[button]));
+						SDL_GetGamepadStringForButton(binding->buttons[button]));
 					first = false;
 				}
 			fputs("\n", file);
@@ -310,7 +310,7 @@ void actions_bind_key(int player, int action, SDL_Scancode key)
 	actions_save();
 }
 
-void actions_bind_button(int player, int action, SDL_GameControllerButton button)
+void actions_bind_button(int player, int action, SDL_GamepadButton button)
 {
 	action_binding *binding = &action_bindings[player][action];
 

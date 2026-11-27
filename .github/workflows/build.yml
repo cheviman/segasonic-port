@@ -1,14 +1,14 @@
 # Name:        build.yml
 # Description: builds the game on clean machines with no ROM set (Linux with GCC, macOS with Clang,
-#              Windows with MSVC), SDL2 inside the executables, and packs what a player runs: the
+#              Windows with MSVC), SDL 3 inside the executables, and packs what a player runs: the
 #              executables only, which load the player's assets pack, with their licenses; the Nintendo
 #              Switch's .nsp pieces with devkitPro's toolchain and Android's game without a pack with the
 #              NDK, both in every package beside the tools that make the player's .nsp and APK of them;
 #              Anbernic's handhelds' folder for Roms/PORTS with Zig, a package of its own; a tag v* makes a
 #              release of those packages
-# Version:     0.6.0
+# Version:     0.7.0
 # Created:     20-10-2026
-# Modified:    07-11-2026
+# Modified:    27-11-2026
 # Author:      Sebastian Toyos
 name: build
 
@@ -37,15 +37,17 @@ jobs:
         with:
           submodules: true    # (lan/: arcade-lan, MULTIPLAYER's)
 
-      # SDL2 is built from its source (SEGASONIC_STATIC_SDL2): on Linux it needs the headers of what it
-      # talks to (it loads the libraries themselves when the game runs)
+      # SDL 3 is built from its source (SEGASONIC_STATIC_SDL): on Linux it needs the headers of what it
+      # talks to (it loads the libraries themselves when the game runs). SDL 3 stops at its configure where a
+      # header of what it builds in by default is missing (SDL 2 left that part out): the list is complete
       - name: Tools (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libasound2-dev libpulse-dev libx11-dev libxext-dev \
-            libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev \
-            libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev libudev-dev libdbus-1-dev
+            libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxinerama-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libpipewire-0.3-dev \
+            libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev libgl1-mesa-dev libudev-dev libdbus-1-dev
 
       - name: Tools (macOS)
         if: runner.os == 'macOS'
@@ -53,15 +55,15 @@ jobs:
 
       - name: Configure (Linux)
         if: runner.os == 'Linux'
-        run: cmake -S . -B build/cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DSEGASONIC_REFERENCE_TOOLS=OFF -DSEGASONIC_STATIC_SDL2=ON
+        run: cmake -S . -B build/cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DSEGASONIC_REFERENCE_TOOLS=OFF -DSEGASONIC_STATIC_SDL=ON
 
       - name: Configure (macOS, Apple silicon and Intel)
         if: runner.os == 'macOS'
-        run: cmake -S . -B build/cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DSEGASONIC_REFERENCE_TOOLS=OFF -DSEGASONIC_STATIC_SDL2=ON "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+        run: cmake -S . -B build/cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DSEGASONIC_REFERENCE_TOOLS=OFF -DSEGASONIC_STATIC_SDL=ON "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build/cmake -DSEGASONIC_REFERENCE_TOOLS=OFF -DSEGASONIC_STATIC_SDL2=ON
+        run: cmake -S . -B build/cmake -DSEGASONIC_REFERENCE_TOOLS=OFF -DSEGASONIC_STATIC_SDL=ON
 
       - name: Build
         run: cmake --build build/cmake --config Release --parallel
@@ -80,7 +82,7 @@ jobs:
 
       # what a player runs (no headless runs, no build leftovers), in an archive of our own: the artifacts'
       # zip loses the executables' permissions. With it, the terms the executables come with: the project's,
-      # MAME's and ymfm's (BSD-3: the board's libraries follow their behavior and tables), SDL2's (zlib) and
+      # MAME's and ymfm's (BSD-3: the board's libraries follow their behavior and tables), SDL 3's (zlib) and
       # Kenney's (CC0). The .apps are signed ad hoc (no certificate): macOS then offers to open them anyway,
       # where a bundle signed in part is "damaged"
       - name: Pack
@@ -97,12 +99,12 @@ jobs:
           cp recomplauncher.json dist/segasonic/    # (RecompLauncher's setup, settings and start, beside the games)
           cp tools/reference/mame/LICENSE dist/segasonic/licenses/MAME.txt
           cp tools/reference/ymfm/LICENSE dist/segasonic/licenses/ymfm.txt
-          cp build/cmake/_deps/sdl2-src/LICENSE.txt dist/segasonic/licenses/SDL2.txt
-          cp ports/sdl2/font/License.txt dist/segasonic/licenses/Kenney-Fonts.txt
+          cp build/cmake/_deps/sdl3-src/LICENSE.txt dist/segasonic/licenses/SDL3.txt
+          cp ports/sdl/font/License.txt dist/segasonic/licenses/Kenney-Fonts.txt
           cp lan/LICENSE dist/segasonic/licenses/arcade-lan.txt
-          cp ports/sdl2/controllerdb/LICENSE dist/segasonic/licenses/SDL_GameControllerDB.txt
-          if [ -f ports/sdl2/prompts/License.txt ]; then
-            cp ports/sdl2/prompts/License.txt dist/segasonic/licenses/Kenney-Input-Prompts.txt
+          cp ports/sdl/controllerdb/LICENSE dist/segasonic/licenses/SDL_GameControllerDB.txt
+          if [ -f ports/sdl/prompts/License.txt ]; then
+            cp ports/sdl/prompts/License.txt dist/segasonic/licenses/Kenney-Input-Prompts.txt
           fi
           if [ -f docs/package/README.txt ]; then
             cp docs/package/README.txt dist/segasonic/README.txt    # (what the package holds, for its player)
@@ -186,8 +188,10 @@ jobs:
           path: build/bin/android/segasonic-base.apk    # (the game alone: not the runner's own APK beside it)
 
   # Anbernic's H700 handhelds: the folder for the stock firmware's Roms/PORTS, built with Zig for its glibc
-  # and against its SDL2 (SDL's headers from its source; ports/anbernic/anbernic.cmake), without an assets
-  # pack, which the player puts in it (docs/package/anbernic/README.txt)
+  # and against its SDL 2.0.12 (SDL 2's headers from its source; the window port's SDL 3 names over them,
+  # ports/sdl/sdl2_layer.h; check_sdl.py fails the build on any function newer than the firmware's;
+  # ports/anbernic/anbernic.cmake), without an assets pack, which the player puts in it
+  # (docs/package/anbernic/README.txt)
   anbernic:
     name: anbernic
     runs-on: ubuntu-24.04
@@ -225,8 +229,8 @@ jobs:
           cp tools/reference/mame/LICENSE $package/PORTS/segasonic/licenses/MAME.txt
           cp tools/reference/ymfm/LICENSE $package/PORTS/segasonic/licenses/ymfm.txt
           cp lan/LICENSE $package/PORTS/segasonic/licenses/arcade-lan.txt
-          if [ -f ports/sdl2/prompts/License.txt ]; then
-            cp ports/sdl2/prompts/License.txt $package/PORTS/segasonic/licenses/Kenney-Input-Prompts.txt
+          if [ -f ports/sdl/prompts/License.txt ]; then
+            cp ports/sdl/prompts/License.txt $package/PORTS/segasonic/licenses/Kenney-Input-Prompts.txt
           fi
           cp docs/package/anbernic/README.txt $package/README.txt
           chmod +x $package/PORTS/SegaSonic.sh $package/PORTS/segasonic/SegaSonic

@@ -12,13 +12,27 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# SDL: the window port is written for SDL 3, one version on every platform that has it (Sebas, 19-11-2026: "pasarlo a
+# sdl3 o el mas reciente que sirva con todo ... y va como regla para todos los ports"; the same as tmnt-port's). The
+# release's archive by its SHA-256, never a moving tag; build/downloads/sdl3-source keeps a copy for builds offline.
+# The Switch builds devkitPro's port of it (ports/switch/switch.cmake); the Anbernic stays on its firmware's SDL 2.0.12
+# with ports/sdl/sdl2_layer.h
+set(SEGASONIC_SDL_VERSION 3.4.20)
+set(SEGASONIC_SDL_SHA256 f3bb06f55bed9557227a700af2ea62e49497ebdf58037732a731a5fb3ef8581f)
+set(SEGASONIC_SDL_ARCHIVE SDL3-${SEGASONIC_SDL_VERSION}.tar.gz)
+set(SEGASONIC_SDL_URL
+	https://github.com/libsdl-org/SDL/releases/download/release-${SEGASONIC_SDL_VERSION}/${SEGASONIC_SDL_ARCHIVE})
+if(EXISTS ${CMAKE_SOURCE_DIR}/build/downloads/sdl3-source/${SEGASONIC_SDL_ARCHIVE})
+	set(SEGASONIC_SDL_URL ${CMAKE_SOURCE_DIR}/build/downloads/sdl3-source/${SEGASONIC_SDL_ARCHIVE})
+endif()
+
 # Every executable lands in build/bin (SONIC_BIN_DIR), whatever the generator or configuration
 set(SONIC_BIN_DIR ${CMAKE_SOURCE_DIR}/build/bin CACHE PATH "Where the executables go")
 foreach(config IN ITEMS "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY${config} ${SONIC_BIN_DIR})
 endforeach()
 
-# A Windows executable's resources (ports/sdl2/icon/version.rc.in, written for each one): the games' icon and
+# A Windows executable's resources (ports/sdl/icon/version.rc.in, written for each one): the games' icon and
 # the version information Windows shows in the file's Properties, with the file's name and what it is
 function(segasonic_windows_resource target file_name description with_icon)
 	if(NOT WIN32)
@@ -27,22 +41,22 @@ function(segasonic_windows_resource target file_name description with_icon)
 	set(SEGASONIC_RC_FILE "${file_name}")
 	set(SEGASONIC_RC_DESCRIPTION "${description}")
 	if(with_icon)
-		set(SEGASONIC_RC_ICON "1 ICON \"${CMAKE_SOURCE_DIR}/ports/sdl2/icon/segasonic.ico\"")
+		set(SEGASONIC_RC_ICON "1 ICON \"${CMAKE_SOURCE_DIR}/ports/sdl/icon/segasonic.ico\"")
 	else()
 		set(SEGASONIC_RC_ICON "")
 	endif()
-	configure_file(${CMAKE_SOURCE_DIR}/ports/sdl2/icon/version.rc.in ${CMAKE_BINARY_DIR}/resources/${target}.rc @ONLY)
+	configure_file(${CMAKE_SOURCE_DIR}/ports/sdl/icon/version.rc.in ${CMAKE_BINARY_DIR}/resources/${target}.rc @ONLY)
 	target_sources(${target} PRIVATE ${CMAKE_BINARY_DIR}/resources/${target}.rc)
 endfunction()
 
 if(MSVC)
 	add_compile_options(/W3 /utf-8)
 	add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
-	# The releases (SEGASONIC_STATIC_SDL2, below) carry the C runtime in the executables too: they need no
+	# The releases (SEGASONIC_STATIC_SDL, below) carry the C runtime in the executables too: they need no
 	# Visual C++ redistributable on the player's machine
-	if(SEGASONIC_STATIC_SDL2)
+	if(SEGASONIC_STATIC_SDL)
 		set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-		set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)    # (SDL2's targets too)
+		set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)    # (SDL's targets too)
 	endif()
 endif()
 
@@ -107,7 +121,7 @@ endif()
 
 # The Switch's .nsp, made on the player's computer (ports/switch/nsp): the game's Switch build (main,
 # main.npdm, control.nacp, icon.jpg), the assets of the player's ROM set and the keys of the player's console.
-# A command line; with SDL2 also a window (below, with the game's window)
+# A command line; with SDL also a window (below, with the game's window)
 if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT ANDROID)
 	add_executable(segasonic_nsp ports/switch/nsp/main.c ports/switch/nsp/make_nsp.c ports/switch/nsp/formats.c
 		ports/switch/nsp/crypto.c)
@@ -118,7 +132,7 @@ endif()
 
 # Android's APK, made on the player's computer (ports/android/apk): the game's Android build
 # (android/segasonic-base.apk), the assets of the player's ROM set, signed with the player's own key; its
-# SHA-256 is SegaSonic NSP's (crypto.c). A command line; with SDL2 also a window (below, with the game's
+# SHA-256 is SegaSonic NSP's (crypto.c). A command line; with SDL also a window (below, with the game's
 # window)
 if(NOT (NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch") AND NOT ANDROID)
 	add_executable(segasonic_apk_maker ports/android/apk/main.c ports/android/apk/make_apk.c ports/android/apk/zip.c
@@ -201,7 +215,7 @@ if(SONIC_DECOMPILED)
 		target_compile_options(sonic_game_console PRIVATE -fno-strict-aliasing)
 	endif()
 
-	# SDL_GameControllerDB (ports/sdl2/controllerdb, zlib License): the community's mappings of game controllers,
+	# SDL_GameControllerDB (ports/sdl/controllerdb, zlib License): the community's mappings of game controllers,
 	# this platform's lines built into the games on the computers and Android (TMNT's players' report: an Nvidia
 	# Shield's PS4 and Xbox controllers); the Switch and the Anbernic keep their own controls. main.c gives SDL
 	# the mappings before it starts (SEGASONIC_CONTROLLER_DB, to whatever links it)
@@ -217,11 +231,11 @@ if(SONIC_DECOMPILED)
 		endif()
 		set(SEGASONIC_CONTROLLER_DB_C ${CMAKE_BINARY_DIR}/controller_db.c)
 		add_custom_command(OUTPUT ${SEGASONIC_CONTROLLER_DB_C}
-			COMMAND ${CMAKE_COMMAND} -DDB=${CMAKE_SOURCE_DIR}/ports/sdl2/controllerdb/gamecontrollerdb.txt
+			COMMAND ${CMAKE_COMMAND} -DDB=${CMAKE_SOURCE_DIR}/ports/sdl/controllerdb/gamecontrollerdb.txt
 				"-DPLATFORM=${SEGASONIC_CONTROLLER_PLATFORM}" -DOUT=${SEGASONIC_CONTROLLER_DB_C}
-				-P ${CMAKE_SOURCE_DIR}/ports/sdl2/controllerdb/embed.cmake
-			DEPENDS ${CMAKE_SOURCE_DIR}/ports/sdl2/controllerdb/gamecontrollerdb.txt
-				${CMAKE_SOURCE_DIR}/ports/sdl2/controllerdb/embed.cmake
+				-P ${CMAKE_SOURCE_DIR}/ports/sdl/controllerdb/embed.cmake
+			DEPENDS ${CMAKE_SOURCE_DIR}/ports/sdl/controllerdb/gamecontrollerdb.txt
+				${CMAKE_SOURCE_DIR}/ports/sdl/controllerdb/embed.cmake
 			COMMENT "SDL_GameControllerDB's mappings for ${SEGASONIC_CONTROLLER_PLATFORM}"
 			VERBATIM)
 		add_library(segasonic_controller_db STATIC ${SEGASONIC_CONTROLLER_DB_C})
@@ -251,80 +265,77 @@ if(SONIC_DECOMPILED)
 		return()
 	endif()
 
-	# The game in a window (ports/sdl2): SDL2 from the system, or on Windows the development package
-	# unpacked in build/downloads/sdl2 (SDL2_DIR picks another), a library beside the executable; or, with
-	# SEGASONIC_STATIC_SDL2 (the releases), SDL2 built from its own source into the executable
-	option(SEGASONIC_STATIC_SDL2 "Build SDL2 from its source into the executables" OFF)
-	if(SEGASONIC_STATIC_SDL2)
+	# The game in a window (ports/sdl): SDL 3 from the system, or on Windows the development package
+	# unpacked in build/downloads/sdl3 (SDL3_DIR picks another), a library beside the executable; or, with
+	# SEGASONIC_STATIC_SDL (the releases), SDL 3 built from its own source into the executable (the version
+	# and the archive's SHA-256 at the top, SEGASONIC_SDL_VERSION)
+	option(SEGASONIC_STATIC_SDL "Build SDL from its source into the executables" OFF)
+	if(SEGASONIC_STATIC_SDL)
 		include(FetchContent)
-		FetchContent_Declare(SDL2 GIT_REPOSITORY https://github.com/libsdl-org/SDL.git GIT_TAG release-2.32.10
-			GIT_SHALLOW TRUE)
+		FetchContent_Declare(SDL3 URL ${SEGASONIC_SDL_URL} URL_HASH SHA256=${SEGASONIC_SDL_SHA256})
 		set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 		set(SDL_STATIC ON CACHE BOOL "" FORCE)
-		set(SDL_TEST OFF CACHE BOOL "" FORCE)
+		set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 		set(SDL_FORCE_STATIC_VCRT ON CACHE BOOL "" FORCE)    # (MSVC: the C runtime inside, as the game's)
-		FetchContent_MakeAvailable(SDL2)
-		set(SONIC_SDL2 SDL2::SDL2-static)
-		set(SDL2_FOUND TRUE)
+		FetchContent_MakeAvailable(SDL3)
+		set(SONIC_SDL SDL3::SDL3-static)
+		set(SDL3_FOUND TRUE)
 	else()
-		set(SONIC_SDL2_UNPACKED "")
+		set(SONIC_SDL_UNPACKED "")
 		if(WIN32)    # (the VC package: its libraries are Windows' only, a source tree shared with WSL has it)
-			file(GLOB SONIC_SDL2_UNPACKED ${CMAKE_SOURCE_DIR}/build/downloads/sdl2/SDL2-*/cmake)
+			file(GLOB SONIC_SDL_UNPACKED ${CMAKE_SOURCE_DIR}/build/downloads/sdl3/SDL3-*/cmake)
 		endif()
-		find_package(SDL2 CONFIG QUIET HINTS ${SONIC_SDL2_UNPACKED})
-		set(SONIC_SDL2 SDL2::SDL2)
+		find_package(SDL3 CONFIG QUIET HINTS ${SONIC_SDL_UNPACKED})
+		set(SONIC_SDL SDL3::SDL3)
 	endif()
-	if(TARGET SDL2::SDL2main)
-		list(APPEND SONIC_SDL2 SDL2::SDL2main)
-	endif()
-	if(SDL2_FOUND)
+	if(SDL3_FOUND)
 		# (an .app on macOS: SDL_GetBasePath is its Resources folder)
-		add_executable(sonic WIN32 MACOSX_BUNDLE ports/sdl2/main.c ports/sdl2/settings.c ports/sdl2/first_run.c
-			ports/sdl2/letters.c ports/sdl2/mice.c)
-		target_link_libraries(sonic PRIVATE sonic_game sonic_data segasonic_controller_db ${SONIC_SDL2})
+		add_executable(sonic WIN32 MACOSX_BUNDLE ports/sdl/main.c ports/sdl/settings.c ports/sdl/first_run.c
+			ports/sdl/letters.c ports/sdl/mice.c)
+		target_link_libraries(sonic PRIVATE sonic_game sonic_data segasonic_controller_db ${SONIC_SDL})
 		# (the arcade game beside the console one: "SegaSonic Arcade" its executable, .app and window)
 		set_target_properties(sonic PROPERTIES OUTPUT_NAME "SegaSonic Arcade" MACOSX_BUNDLE_BUNDLE_NAME "SegaSonic Arcade"
 			MACOSX_BUNDLE_GUI_IDENTIFIER io.github.cheviman.segasonic-port.arcade)
-		if(WIN32 AND NOT SEGASONIC_STATIC_SDL2)
+		if(WIN32 AND NOT SEGASONIC_STATIC_SDL)
 			add_custom_command(TARGET sonic POST_BUILD
-				COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:sonic>)
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:sonic>)
 		endif()
 		# the first run's letters (Kenney Mini, CC0; tools/make_font.py): beside the executable, or in the
 		# .app's Resources on macOS
 		if(APPLE)
-			target_sources(sonic PRIVATE ports/sdl2/font/font.bmp)
-			set_source_files_properties(ports/sdl2/font/font.bmp PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+			target_sources(sonic PRIVATE ports/sdl/font/font.bmp)
+			set_source_files_properties(ports/sdl/font/font.bmp PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 		else()
 			add_custom_command(TARGET sonic POST_BUILD
-				COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl2/font/font.bmp
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl/font/font.bmp
 					$<TARGET_FILE_DIR:sonic>)
 		endif()
-		add_executable(SegaSonic WIN32 MACOSX_BUNDLE ports/sdl2/main.c ports/sdl2/settings.c ports/sdl2/actions.c
-			ports/sdl2/first_run.c ports/sdl2/letters.c ports/sdl2/mice.c)
-		target_link_libraries(SegaSonic PRIVATE sonic_game_console sonic_data segasonic_controller_db ${SONIC_SDL2})
+		add_executable(SegaSonic WIN32 MACOSX_BUNDLE ports/sdl/main.c ports/sdl/settings.c ports/sdl/actions.c
+			ports/sdl/first_run.c ports/sdl/letters.c ports/sdl/mice.c)
+		target_link_libraries(SegaSonic PRIVATE sonic_game_console sonic_data segasonic_controller_db ${SONIC_SDL})
 		# a development aid: SegaSonic with Android's touch controls, the mouse a finger, to look at them in a
 		# window of any shape (as OutRunners')
 		option(SEGASONIC_TOUCH_TEST "Build SegaSonic with Android's touch controls, the mouse as a finger" OFF)
 		if(SEGASONIC_TOUCH_TEST)
-			target_sources(SegaSonic PRIVATE ports/sdl2/touch.c)
+			target_sources(SegaSonic PRIVATE ports/sdl/touch.c)
 			target_compile_definitions(SegaSonic PRIVATE SEGASONIC_TOUCH SEGASONIC_TOUCH_TEST)
 		endif()
 		set_target_properties(SegaSonic PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "SegaSonic"
 			MACOSX_BUNDLE_GUI_IDENTIFIER io.github.cheviman.segasonic-port)
-		if(WIN32 AND NOT SEGASONIC_STATIC_SDL2)
+		if(WIN32 AND NOT SEGASONIC_STATIC_SDL)
 			add_custom_command(TARGET SegaSonic POST_BUILD
-				COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:SegaSonic>)
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:SegaSonic>)
 		endif()
 		# the CONTROLS screen's key and button pictures (Kenney's Input Prompts Pixel, CC0) and the first
 		# run's letters (Kenney Mini, CC0): beside the executable, or in the .app's Resources on macOS
 		if(APPLE)
-			target_sources(SegaSonic PRIVATE ports/sdl2/prompts/input_prompts.bmp ports/sdl2/font/font.bmp)
-			set_source_files_properties(ports/sdl2/prompts/input_prompts.bmp PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+			target_sources(SegaSonic PRIVATE ports/sdl/prompts/input_prompts.bmp ports/sdl/font/font.bmp)
+			set_source_files_properties(ports/sdl/prompts/input_prompts.bmp PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 		else()
 			add_custom_command(TARGET SegaSonic POST_BUILD
-				COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl2/prompts/input_prompts.bmp
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl/prompts/input_prompts.bmp
 					$<TARGET_FILE_DIR:SegaSonic>
-				COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl2/font/font.bmp
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl/font/font.bmp
 					$<TARGET_FILE_DIR:SegaSonic>)
 		endif()
 		# the executables' icon (tools/make_icon.py): a resource on Windows, with the version information
@@ -334,59 +345,58 @@ if(SONIC_DECOMPILED)
 		segasonic_windows_resource(SegaSonic "SegaSonic.exe" "SegaSonic The Hedgehog" ON)
 		foreach(game sonic SegaSonic)
 			if(APPLE)
-				target_sources(${game} PRIVATE ports/sdl2/icon/segasonic.icns)
+				target_sources(${game} PRIVATE ports/sdl/icon/segasonic.icns)
 				set_target_properties(${game} PROPERTIES MACOSX_BUNDLE_ICON_FILE segasonic.icns)
 			elseif(NOT WIN32)
 				add_custom_command(TARGET ${game} POST_BUILD
-					COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl2/icon/segasonic.png
+					COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl/icon/segasonic.png
 						$<TARGET_FILE_DIR:${game}>)
 			endif()
 		endforeach()
 		if(APPLE)
-			set_source_files_properties(ports/sdl2/icon/segasonic.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+			set_source_files_properties(ports/sdl/icon/segasonic.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 		endif()
 
 		# SegaSonic NSP's window (ports/switch/nsp/window.c), when it is started with nothing: still a console
-		# program, with its own main (SDL2 without SDL2main); the folder dialog is COM's on Windows. Its
-		# letters (Kenney Mini, font.bmp) beside it, as SDL2's library is
-		list(GET SONIC_SDL2 0 SONIC_SDL2_LIBRARY)
+		# program, with its own main (SDL_MAIN_HANDLED); the folder dialog is COM's on Windows. Its
+		# letters (Kenney Mini, font.bmp) beside it, as SDL3.dll is
 		target_sources(segasonic_nsp PRIVATE ports/switch/nsp/window.c ports/switch/nsp/folder_dialog.c
-			ports/sdl2/letters.c)
-		target_include_directories(segasonic_nsp PRIVATE ports/sdl2)
+			ports/sdl/letters.c)
+		target_include_directories(segasonic_nsp PRIVATE ports/sdl)
 		target_compile_definitions(segasonic_nsp PRIVATE SEGASONIC_NSP_WINDOW)
-		target_link_libraries(segasonic_nsp PRIVATE ${SONIC_SDL2_LIBRARY})
+		target_link_libraries(segasonic_nsp PRIVATE ${SONIC_SDL})
 		if(WIN32)
 			target_link_libraries(segasonic_nsp PRIVATE ole32 shell32 uuid)
-			if(NOT SEGASONIC_STATIC_SDL2)
+			if(NOT SEGASONIC_STATIC_SDL)
 				add_custom_command(TARGET segasonic_nsp POST_BUILD
-					COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:segasonic_nsp>)
+					COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:segasonic_nsp>)
 			endif()
 		endif()
 		add_custom_command(TARGET segasonic_nsp POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl2/font/font.bmp
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl/font/font.bmp
 				$<TARGET_FILE_DIR:segasonic_nsp>)
 
 		# SegaSonic APK's window (ports/android/apk/window.c), as SegaSonic NSP's: its folder dialog (with a
-		# title of its own) and its letters, font.bmp and SDL2.dll beside it
+		# title of its own) and its letters, font.bmp and SDL3.dll beside it
 		target_sources(segasonic_apk_maker PRIVATE ports/android/apk/window.c ports/switch/nsp/folder_dialog.c
-			ports/sdl2/letters.c)
-		target_include_directories(segasonic_apk_maker PRIVATE ports/sdl2)
+			ports/sdl/letters.c)
+		target_include_directories(segasonic_apk_maker PRIVATE ports/sdl)
 		target_compile_definitions(segasonic_apk_maker PRIVATE SEGASONIC_APK_WINDOW
 			[[FOLDER_TITLE="The folder for SegaSonic.apk"]])
-		target_link_libraries(segasonic_apk_maker PRIVATE ${SONIC_SDL2_LIBRARY})
+		target_link_libraries(segasonic_apk_maker PRIVATE ${SONIC_SDL})
 		if(WIN32)
 			target_link_libraries(segasonic_apk_maker PRIVATE ole32 shell32 uuid)
-			if(NOT SEGASONIC_STATIC_SDL2)
+			if(NOT SEGASONIC_STATIC_SDL)
 				add_custom_command(TARGET segasonic_apk_maker POST_BUILD
-					COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2>
+					COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3>
 						$<TARGET_FILE_DIR:segasonic_apk_maker>)
 			endif()
 		endif()
 		add_custom_command(TARGET segasonic_apk_maker POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl2/font/font.bmp
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/ports/sdl/font/font.bmp
 				$<TARGET_FILE_DIR:segasonic_apk_maker>)
 	else()
-		message(STATUS "No SDL2: the window port (sonic) is not built, and SegaSonic NSP and SegaSonic APK are "
+		message(STATUS "No SDL 3: the window port (sonic) is not built, and SegaSonic NSP and SegaSonic APK are "
 			"their command lines alone")
 	endif()
 else()

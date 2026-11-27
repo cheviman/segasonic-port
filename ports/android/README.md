@@ -8,7 +8,7 @@ APK. It is the same game as on a computer, with what a phone asks for:
   under it (an open Galaxy Z Fold's), that picture goes at the top and the touch controls under it; a fold
   opened or closed mid-game changes it at once. Where the picture leaves the screen, OPTIONS' Sonic heads
   stand still. OPTIONS has no VIDEO page.
-- **Touch controls**, over the picture or under it (`ports/sdl2/touch.c`): a stick where your left thumb lands
+- **Touch controls**, over the picture or under it (`ports/sdl/touch.c`): a stick where your left thumb lands
   on the screen's left half (it rolls the trackball as far as it leans, and moves the menus' cursor), **A**
   (jump, pick) and **START** (start, pause), the same size on every phone. They hide when a game controller
   or a keyboard is used, and come back when a finger touches the screen.
@@ -55,8 +55,8 @@ cmake -S . -B build/android -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAI
 cmake --build build/android --target segasonic_apk --parallel 6
 ```
 
-`CMakeLists.txt` sees the NDK's toolchain and builds the game alone (`android.cmake`): SDL2 from its source
-(2.32.10, `FETCHCONTENT_SOURCE_DIR_SDL2` picks a copy already on the computer), the game as `libmain.so`, and
+`CMakeLists.txt` sees the NDK's toolchain and builds the game alone (`android.cmake`): SDL 3 from its source
+(`FETCHCONTENT_SOURCE_DIR_SDL3` picks a copy already on the computer), the game as `libmain.so`, and
 two APKs around them, put together by the SDK's own tools, without Gradle:
 
 - `build/bin/android/segasonic-base.apk`: the game without an assets pack or a signature, which SegaSonic APK
@@ -69,7 +69,7 @@ two APKs around them, put together by the SDK's own tools, without Gradle:
 |---|---|---|
 | SDL's Java (`org.libsdl.app.SDLActivity`, from SDL's source) | `javac`, `d8` | `classes.dex` |
 | The manifest, the icon, the assets (the pack stored, read in place) | `aapt2` | the APK's base |
-| `libmain.so` and `libSDL2.so` (without their symbols), `classes.dex` | `llvm-strip`, `aapt` | the APK |
+| `libmain.so` and `libSDL3.so` (without their symbols), `classes.dex` | `llvm-strip`, `aapt` | the APK |
 | | `zipalign` (and `apksigner`, this computer's) | the APKs, aligned (and signed) |
 
 To give this computer's APK an icon of your own on the launcher, a square JPEG or PNG:
@@ -82,12 +82,12 @@ there (Android asks to allow installing from that app once).
 
 | File | |
 |---|---|
-| `android.cmake` | the Android build: SDL2, `libmain.so`, the APK |
+| `android.cmake` | the Android build: SDL 3, `libmain.so`, the APK |
 | `AndroidManifest.xml` | the app: SDL's activity, landscape, full screen |
 | `res/` | the launcher's icon (`tools/make_icon.py`), and `ic_launcher_own.xml` and `ic_launcher_art.png` for a player's own picture |
 | `apk/` | SegaSonic APK, the tool that makes a player's APK on their computer ([apk/README.md](apk/README.md)) |
 
-The game's own changes for Android are in `ports/sdl2/` (`__ANDROID__`: the pack in the APK, the app's
+The game's own changes for Android are in `ports/sdl/` (`__ANDROID__`: the pack in the APK, the app's
 folders, back and the background; `SEGASONIC_TOUCH`: the touch controls, `touch.c`; `SEGASONIC_PAUSE_EXIT`: the
 pause's CONTINUE and EXIT) and in `console/console.c` (`SEGASONIC_HANDHELD`: OPTIONS without VIDEO and CONTROLS;
 `SEGASONIC_SYSTEM_EXIT`: no EXIT on the title; `SEGASONIC_PAUSE_EXIT`: the pause's choices).

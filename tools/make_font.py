@@ -1,6 +1,6 @@
 """
 Name:        make_font.py
-Description: draws the font the first run's window writes with (ports/sdl2/font/font.bmp): Kenney Mini
+Description: draws the font the first run's window writes with (ports/sdl/font/font.bmp): Kenney Mini
              (Kenney Fonts, CC0), the characters 20h-7Eh in a grid
 Version:     0.1.0
 Created:     20-10-2026
@@ -12,7 +12,7 @@ Usage: python tools/make_font.py FONT.ttf
 The window the game opens before it has its assets has none of the game's own letters (they are in the
 ROM). It writes with Kenney Mini at 16 pixels, its own size (white or black, no grey): a 16 x 16 cell a
 character, 16 a row, from 20h (space) in the order of their codes, white on black. The window measures a
-character by its lit columns (ports/sdl2/first_run.c).
+character by its lit columns (ports/sdl/first_run.c).
 """
 import shutil
 import sys
@@ -21,7 +21,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "ports" / "sdl2" / "font"
+OUT = ROOT / "ports" / "sdl" / "font"
 SIZE = 16          # Kenney Mini's pixels: at 16 each of its dots is one
 CELL = 16
 TOP = 4            # (no character draws above its row 4 at this size)

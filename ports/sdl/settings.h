@@ -8,8 +8,8 @@
  *
  *    license:BSD-3-Clause
  */
-#ifndef SONIC_SDL2_SETTINGS_H
-#define SONIC_SDL2_SETTINGS_H
+#ifndef SONIC_SDL_SETTINGS_H
+#define SONIC_SDL_SETTINGS_H
 
 #include <stdbool.h>
 

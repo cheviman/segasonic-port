@@ -60,7 +60,7 @@ Copy both to `Roms/PORTS/` on the handheld's card, and the game is in the firmwa
   `libSDL2-2.0.so.0` and takes the firmware's when it starts. A function the port starts to call goes
   there too (the link says which).
 - The handheld's buttons come as a joystick SDL 2.0.12 does not know, "ANBERNIC-keys": the game gives SDL
-  its mapping before SDL starts (`device_mappings` in `ports/sdl2/main.c`), as the RG40XX H's controls test
+  its mapping before SDL starts (`device_mappings` in `ports/sdl/main.c`), as the RG40XX H's controls test
   found them: A 0, B 1, X 3, Y 2, L1 4, L2 5, R1 10, R2 11, SELECT 6, START 7, MENU 8, L3 9, R3 12, the
   d-pad hat 0, the sticks axes 0 to 3.
 

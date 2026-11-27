@@ -5,7 +5,7 @@
  *                 what they are, a button for the output folder and one (or Enter) that makes the APK
  *    Version:     0.1.0
  *    Created:     25-10-2026
- *    Modified:    25-10-2026
+ *    Modified:    27-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -17,7 +17,7 @@
  *    so too. Each state is looked at again when the window comes back to the front (a file put beside the
  *    tool meanwhile). The APK is made by make_apk, as the command line makes it, on a thread of its own:
  *    the window keeps drawing while it works, and when it is closed then, it waits out of sight for the
- *    APK to be written. Its letters are Kenney Mini's (ports/sdl2/letters.c, font.bmp beside the tool), its
+ *    APK to be written. Its letters are Kenney Mini's (ports/sdl/letters.c, font.bmp beside the tool), its
  *    folder dialog SegaSonic NSP's (ports/switch/nsp/folder_dialog.c). SDL gives paths in UTF-8; on
  *    Windows they go to the C library in the system's code page. On Windows the console the tool is
  *    started with is closed when it is the tool's own (a double click), and kept when it is a command
@@ -35,8 +35,8 @@
 #include <windows.h>
 #endif
 
-#include <SDL.h>
-#include <SDL_syswm.h>
+#include "port_sdl.h"
+#include <SDL3/SDL_main.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -65,7 +65,7 @@
 #ifdef _WIN32
 #define SEPARATOR "\\"
 #define KEY_PLACE "in SegaSonic in your AppData folder"
-#elif defined(__APPLE__)
+#elif defined(SDL_PLATFORM_APPLE)
 #define SEPARATOR "/"
 #define KEY_PLACE "in SegaSonic in your Application Support folder"
 #else
@@ -117,8 +117,8 @@ typedef struct
 	char made_place[APK_PATH_SIZE + 32];       /* where the APK goes, as its row says it */
 	char failed_place[APK_PATH_SIZE + 192];    /* what it failed on, shown so */
 	int made;
-	void *step;                        /* the step it is at (a const char *), SDL_AtomicSetPtr's */
-	SDL_atomic_t done;
+	void *step;                        /* the step it is at (a const char *), SDL_SetAtomicPointer's */
+	SDL_AtomicInt done;
 } tool_window;
 
 static tool_window tool;
@@ -140,11 +140,10 @@ static void native_path(const char *utf8, char *path, size_t size)
 static void *window_handle(SDL_Window *window)
 {
 #ifdef _WIN32
-	SDL_SysWMinfo info;
+	void *handle = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
 
-	SDL_VERSION(&info.version);
-	if (SDL_GetWindowWMInfo(window, &info) && info.subsystem == SDL_SYSWM_WINDOWS)
-		return info.info.win.window;
+	if (handle)
+		return handle;
 #else
 	(void)window;
 #endif
@@ -262,8 +261,11 @@ static const char *fitted(const char *text, int width, char *out, size_t size)
 
 static void fill(int r, int g, int b, const SDL_Rect *box)
 {
+	SDL_FRect fbox;
+
+	SDL_RectToFRect(box, &fbox);
 	SDL_SetRenderDrawColor(tool.renderer, (Uint8)r, (Uint8)g, (Uint8)b, 255);
-	SDL_RenderFillRect(tool.renderer, box);
+	SDL_RenderFillRect(tool.renderer, &fbox);
 }
 
 static SDL_Rect button_box(int button)
@@ -331,7 +333,7 @@ static void draw_button(int button, const char *label)
 /* While it works: a block going across a bar, below the step it is at */
 static void draw_bar(int y)
 {
-	const Uint32 into = (SDL_GetTicks() - tool.started) % BAR_ROUND;
+	const Uint32 into = (Uint32)(SDL_GetTicks() - tool.started) % BAR_ROUND;
 	SDL_Rect bar, block;
 
 	bar.w = BAR_WIDTH;
@@ -376,7 +378,7 @@ static void draw(void)
 	/* below the buttons: what it is doing, what it made or what failed */
 	if (tool.phase == MAKING)
 	{
-		const char *const step = (const char *)SDL_AtomicGetPtr(&tool.step);
+		const char *const step = (const char *)SDL_GetAtomicPointer(&tool.step);
 
 		snprintf(line, sizeof(line), "Making " APK_FILE ": %s", step ? step : "starting");
 		first = line;
@@ -419,14 +421,14 @@ static void draw(void)
 static void told_step(void *context, const char *step)
 {
 	(void)context;
-	SDL_AtomicSetPtr(&tool.step, (void *)step);
+	SDL_SetAtomicPointer(&tool.step, (void *)step);
 }
 
 static int making_thread(void *context)
 {
 	(void)context;
 	tool.made = make_apk(&tool.making, NULL, told_step, NULL, &tool.outcome);
-	SDL_AtomicSet(&tool.done, 1);
+	SDL_SetAtomicInt(&tool.done, 1);
 	return 0;
 }
 
@@ -440,10 +442,10 @@ static void start_making(void)
 		tool.given.out[0] ? tool.making.out : APK_FILE ", " BESIDE_TOOL);
 	memset(&tool.outcome, 0, sizeof(tool.outcome));
 	tool.failed_place[0] = '\0';
-	SDL_AtomicSetPtr(&tool.step, NULL);
-	SDL_AtomicSet(&tool.done, 0);
+	SDL_SetAtomicPointer(&tool.step, NULL);
+	SDL_SetAtomicInt(&tool.done, 0);
 	tool.note[0] = '\0';
-	tool.started = SDL_GetTicks();
+	tool.started = (Uint32)SDL_GetTicks();
 	tool.phase = MAKING;
 	if (!(tool.thread = SDL_CreateThread(making_thread, "SegaSonic APK", NULL)))
 	{
@@ -470,7 +472,7 @@ static void choose_folder(void)
 	apk_folder_of(tool.inputs.out, start, sizeof(start));
 	got = folder_dialog(window_handle(tool.window), start, chosen, sizeof(chosen));
 	SDL_PumpEvents();
-	SDL_FlushEvents(SDL_MOUSEMOTION, SDL_MOUSEWHEEL);    /* (what the mouse did over the dialog) */
+	SDL_FlushEvents(SDL_EVENT_MOUSE_MOTION, SDL_EVENT_MOUSE_WHEEL);    /* (what the mouse did over the dialog) */
 	tool.pressed = NO_BUTTON;
 	tool.note[0] = '\0';
 	if (got == FOLDER_NO_DIALOG)
@@ -513,9 +515,9 @@ static void close_own_console(void)
 static void close_window(void)
 {
 	if (tool.hand)
-		SDL_FreeCursor(tool.hand);
+		SDL_DestroyCursor(tool.hand);
 	if (tool.arrow)
-		SDL_FreeCursor(tool.arrow);
+		SDL_DestroyCursor(tool.arrow);
 	letters_free(&tool.font);
 	if (tool.renderer)
 		SDL_DestroyRenderer(tool.renderer);
@@ -526,11 +528,11 @@ static void close_window(void)
 
 int apk_window(const char *here)
 {
-	char *base;
+	const char *base;
 	int running = 1;
 
 	SDL_SetMainReady();
-	if (SDL_Init(SDL_INIT_VIDEO) != 0)
+	if (!SDL_Init(SDL_INIT_VIDEO))
 		return -1;
 	memset(&tool, 0, sizeof(tool));
 	tool.hover = tool.pressed = NO_BUTTON;
@@ -541,19 +543,16 @@ int apk_window(const char *here)
 		snprintf(tool.here, sizeof(tool.here), "%s", here);
 	if (!key_folder(tool.key_folder, sizeof(tool.key_folder)))
 		tool.key_folder[0] = '\0';
-	tool.window = SDL_CreateWindow(WINDOW_TITLE, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH,
-		WINDOW_HEIGHT, SDL_WINDOW_HIDDEN);
-	tool.renderer = tool.window ? SDL_CreateRenderer(tool.window, -1, 0) : NULL;
+	tool.window = SDL_CreateWindow(WINDOW_TITLE, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_HIDDEN);
+	tool.renderer = tool.window ? SDL_CreateRenderer(tool.window, NULL) : NULL;
 	if (!tool.renderer || !letters_load(tool.renderer, base, &tool.font))
 	{
-		SDL_free(base);
 		close_window();
 		return -1;
 	}
-	SDL_free(base);
-	tool.arrow = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW);
-	tool.hand = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_HAND);
-	SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
+	tool.arrow = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
+	tool.hand = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER);
+	SDL_SetEventEnabled(SDL_EVENT_DROP_FILE, true);
 	refresh();
 	SDL_ShowWindow(tool.window);
 	close_own_console();
@@ -564,7 +563,7 @@ int apk_window(const char *here)
 		const int making = tool.phase == MAKING;
 		const int got = making ? SDL_WaitEventTimeout(&event, BAR_EVERY) : SDL_WaitEvent(&event);
 
-		if (making && SDL_AtomicGet(&tool.done))
+		if (making && SDL_GetAtomicInt(&tool.done))
 		{
 			end_making();
 			draw();
@@ -577,32 +576,31 @@ int apk_window(const char *here)
 				draw();    /* (the bar's next frame) */
 			continue;
 		}
-		if (event.type == SDL_QUIT)
+		if (event.type == SDL_EVENT_QUIT)
 			running = 0;
-		else if (event.type == SDL_DROPFILE)
+		else if (event.type == SDL_EVENT_DROP_FILE)
 		{
 			if (tool.phase != MAKING)
 			{
 				char path[APK_PATH_SIZE];
 
-				native_path(event.drop.file, path, sizeof(path));
+				native_path(event.drop.data, path, sizeof(path));
 				apk_take_dropped(&tool.given, path);
 				tool.phase = WAITING;
 				tool.note[0] = '\0';
 				refresh();
 				draw();
 			}
-			SDL_free(event.drop.file);
 		}
-		else if (event.type == SDL_KEYDOWN && !event.key.repeat
-			&& (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_KP_ENTER))
+		else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat
+			&& (event.key.key == SDLK_RETURN || event.key.key == SDLK_KP_ENTER))
 		{
 			press(MAKE_BUTTON);
 			draw();
 		}
-		else if (event.type == SDL_MOUSEMOTION)
+		else if (event.type == SDL_EVENT_MOUSE_MOTION)
 		{
-			const int hover = button_at(event.motion.x, event.motion.y);
+			const int hover = button_at((int)event.motion.x, (int)event.motion.y);
 
 			if (hover != tool.hover)
 			{
@@ -610,22 +608,23 @@ int apk_window(const char *here)
 				draw();
 			}
 		}
-		else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
-			tool.pressed = button_at(event.button.x, event.button.y);
-		else if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT)
+		else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT)
+			tool.pressed = button_at((int)event.button.x, (int)event.button.y);
+		else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == SDL_BUTTON_LEFT)
 		{
-			const int button = button_at(event.button.x, event.button.y);
+			const int button = button_at((int)event.button.x, (int)event.button.y);
 
 			if (button != NO_BUTTON && button == tool.pressed)
 				press(button);
 			tool.pressed = NO_BUTTON;
 			draw();
 		}
-		else if (event.type == SDL_WINDOWEVENT)
+		else if (event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST)
 		{
-			if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED && tool.phase != MAKING)
+			/* (any event of the window's: SDL 3 has each as an event of its own) */
+			if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED && tool.phase != MAKING)
 				refresh();
-			else if (event.window.event == SDL_WINDOWEVENT_LEAVE)
+			else if (event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE)
 				tool.hover = NO_BUTTON;
 			draw();
 		}

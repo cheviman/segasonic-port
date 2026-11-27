@@ -7,7 +7,7 @@ PS4 controller did not move the cursor, and in a game neither it nor an Xbox con
 file as tmnt-port's).
 
 The games on the computers and Android build their platform's lines into the executable (`embed.cmake`,
-CMakeLists.txt's `segasonic_controller_db`), and `ports/sdl2/main.c` gives them to SDL as a hint before it starts
+CMakeLists.txt's `segasonic_controller_db`), and `ports/sdl/main.c` gives them to SDL as a hint before it starts
 (`SDL_HINT_GAMECONTROLLERCONFIG`), with the player's own `gamecontrollerdb.txt` after them: a mapping added after SDL
 starts would leave a controller already plugged in a joystick, which the game does not take. The Switch and the
 Anbernic keep their own controls. To take a newer one: the same file from the repository's master, and its commit

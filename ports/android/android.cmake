@@ -1,9 +1,9 @@
 # Name:        android.cmake
-# Description: the Android build (the NDK's toolchain): the console game as libmain.so beside SDL2's, both from
+# Description: the Android build (the NDK's toolchain): the console game as libmain.so beside SDL's, both from
 #              their source, and the APKs around them: the game's, for SegaSonic APK, and this computer's own
 # Version:     0.1.0
 # Created:     25-10-2026
-# Modified:    07-11-2026
+# Modified:    27-11-2026
 # Author:      Sebastian Toyos
 #
 # Included by CMakeLists.txt when the toolchain is the NDK's (build/cmake/android.toolchain.cmake, with
@@ -38,19 +38,19 @@ set(SEGASONIC_ANDROID_ICON "" CACHE FILEPATH
 	"The launcher's icon: a square picture of the player's own (JPEG or PNG), instead of the trackball")
 set(SEGASONIC_ANDROID_KEYSTORE "" CACHE FILEPATH "The key the APK is signed with (by default the debug one)")
 
-# SDL2 from its source, as the releases' (FETCHCONTENT_SOURCE_DIR_SDL2 picks a copy already here): its
-# library, libSDL2.so, and its Java
+# SDL from its source, the computers' version (CMakeLists.txt's SEGASONIC_SDL_VERSION; FETCHCONTENT_SOURCE_DIR_SDL3 picks a
+# copy already here): its library, libSDL3.so, and its Java
 include(FetchContent)
-FetchContent_Declare(SDL2 GIT_REPOSITORY https://github.com/libsdl-org/SDL.git GIT_TAG release-2.32.10
+FetchContent_Declare(SDL3 URL ${SEGASONIC_SDL_URL} URL_HASH SHA256=${SEGASONIC_SDL_SHA256}
 	GIT_SHALLOW TRUE)
 set(SDL_SHARED ON CACHE BOOL "" FORCE)
 set(SDL_STATIC OFF CACHE BOOL "" FORCE)
-set(SDL_TEST OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(SDL2)
+set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(SDL3)
 
-add_library(main SHARED ports/sdl2/main.c ports/sdl2/settings.c ports/sdl2/actions.c ports/sdl2/letters.c
-	ports/sdl2/touch.c)
-target_link_libraries(main PRIVATE sonic_game_console sonic_data segasonic_controller_db SDL2::SDL2)
+add_library(main SHARED ports/sdl/main.c ports/sdl/settings.c ports/sdl/actions.c ports/sdl/letters.c
+	ports/sdl/touch.c)
+target_link_libraries(main PRIVATE sonic_game_console sonic_data segasonic_controller_db SDL3::SDL3)
 target_compile_definitions(main PRIVATE _BSD_SOURCE)    # (bionic's funopen: the pack in the APK, main.c)
 
 # The SDK around the NDK (sdk/ndk/<version>), else ANDROID_HOME: the platform's android.jar, the newest
@@ -84,7 +84,7 @@ set(SONIC_APK_WORK ${CMAKE_BINARY_DIR}/apk)
 set(SONIC_APK ${SONIC_BIN_DIR}/android/SegaSonic-debug.apk)    # (not SegaSonic APK's SegaSonic.apk)
 
 # SDL's Java, the activity that starts libmain.so: classes.dex
-file(GLOB SONIC_SDL_JAVA ${sdl2_SOURCE_DIR}/android-project/app/src/main/java/org/libsdl/app/*.java)
+file(GLOB SONIC_SDL_JAVA ${sdl3_SOURCE_DIR}/android-project/app/src/main/java/org/libsdl/app/*.java)
 add_custom_command(OUTPUT ${SONIC_APK_WORK}/dex/classes.dex
 	COMMAND ${CMAKE_COMMAND} -E rm -rf ${SONIC_APK_WORK}/classes ${SONIC_APK_WORK}/dex
 	COMMAND ${CMAKE_COMMAND} -E make_directory ${SONIC_APK_WORK}/classes ${SONIC_APK_WORK}/dex
@@ -103,18 +103,18 @@ add_custom_command(OUTPUT ${SONIC_APK_WORK}/dex/classes.dex
 set(SONIC_APK_FILES ${SONIC_APK_WORK}/files)
 set(SONIC_APK_LIB lib/${ANDROID_ABI})
 add_custom_command(OUTPUT ${SONIC_APK_FILES}/classes.dex ${SONIC_APK_FILES}/${SONIC_APK_LIB}/libmain.so
-		${SONIC_APK_FILES}/${SONIC_APK_LIB}/libSDL2.so
+		${SONIC_APK_FILES}/${SONIC_APK_LIB}/libSDL3.so
 	COMMAND ${CMAKE_COMMAND} -E rm -rf ${SONIC_APK_FILES}
 	COMMAND ${CMAKE_COMMAND} -E make_directory ${SONIC_APK_FILES}/${SONIC_APK_LIB}
 	COMMAND ${CMAKE_STRIP} --strip-unneeded -o ${SONIC_APK_FILES}/${SONIC_APK_LIB}/libmain.so $<TARGET_FILE:main>
-	COMMAND ${CMAKE_STRIP} --strip-unneeded -o ${SONIC_APK_FILES}/${SONIC_APK_LIB}/libSDL2.so
-		$<TARGET_FILE:SDL2::SDL2>
+	COMMAND ${CMAKE_STRIP} --strip-unneeded -o ${SONIC_APK_FILES}/${SONIC_APK_LIB}/libSDL3.so
+		$<TARGET_FILE:SDL3::SDL3>
 	COMMAND ${CMAKE_COMMAND} -E copy ${SONIC_APK_WORK}/dex/classes.dex ${SONIC_APK_FILES}
-	DEPENDS main SDL2 ${SONIC_APK_WORK}/dex/classes.dex
+	DEPENDS main SDL3-shared ${SONIC_APK_WORK}/dex/classes.dex
 	COMMENT "The APK's libraries and Java"
 	VERBATIM)
 set(SONIC_APK_GAME_FILES ${SONIC_APK_FILES}/classes.dex ${SONIC_APK_FILES}/${SONIC_APK_LIB}/libmain.so
-	${SONIC_APK_FILES}/${SONIC_APK_LIB}/libSDL2.so)
+	${SONIC_APK_FILES}/${SONIC_APK_LIB}/libSDL3.so)
 
 # An APK's manifest, icon and assets, as aapt2 links them from the folder 'stage' (its res/ and assets/,
 # which 'commands' fill), then the game's files in and aligned: 'apk'
@@ -123,7 +123,7 @@ function(sonic_apk apk stage commands depends)
 		COMMAND ${CMAKE_COMMAND} -E rm -rf ${stage}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${stage}/assets
 		COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/ports/android/res ${stage}/res
-		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/ports/sdl2/font/font.bmp ${stage}/assets
+		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/ports/sdl/font/font.bmp ${stage}/assets
 		${commands}
 		COMMAND ${SONIC_AAPT2} compile --dir ${stage}/res -o ${stage}/res.zip
 		COMMAND ${SONIC_AAPT2} link -o ${stage}/linked.apk -I ${SONIC_ANDROID_JAR}
@@ -132,10 +132,10 @@ function(sonic_apk apk stage commands depends)
 			--version-code ${SONIC_ANDROID_VERSION_CODE} --version-name ${SONIC_ANDROID_VERSION}
 			-A ${stage}/assets -0 assets ${stage}/res.zip    # (the pack stored: read in place, never unpacked)
 		COMMAND ${CMAKE_COMMAND} -E chdir ${SONIC_APK_FILES} ${SONIC_AAPT} add ${stage}/linked.apk classes.dex
-			${SONIC_APK_LIB}/libmain.so ${SONIC_APK_LIB}/libSDL2.so
+			${SONIC_APK_LIB}/libmain.so ${SONIC_APK_LIB}/libSDL3.so
 		COMMAND ${SONIC_ZIPALIGN} -p -f 4 ${stage}/linked.apk ${apk}
 		DEPENDS ${CMAKE_SOURCE_DIR}/ports/android/AndroidManifest.xml ${SONIC_ANDROID_RES}
-			${CMAKE_SOURCE_DIR}/ports/sdl2/font/font.bmp ${SONIC_APK_GAME_FILES} ${depends}
+			${CMAKE_SOURCE_DIR}/ports/sdl/font/font.bmp ${SONIC_APK_GAME_FILES} ${depends}
 		COMMENT "The APK: ${apk}"
 		VERBATIM)
 endfunction()
@@ -182,12 +182,16 @@ else()
 	set(SONIC_KEYSTORE $ENV{HOME}/.android/debug.keystore)
 endif()
 get_filename_component(SONIC_KEYSTORE_DIR ${SONIC_KEYSTORE} DIRECTORY)
-add_custom_command(OUTPUT ${SONIC_KEYSTORE}
-	COMMAND ${CMAKE_COMMAND} -E make_directory ${SONIC_KEYSTORE_DIR}
-	COMMAND ${SONIC_KEYTOOL} -genkeypair -keystore ${SONIC_KEYSTORE} -storepass android -alias androiddebugkey
-		-keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-	COMMENT "The debug key: ${SONIC_KEYSTORE}"
-	VERBATIM)
+# (made only where there is none: keytool refuses to make it again, and a new build folder runs the rule once more
+# where the key is already there)
+if(NOT EXISTS ${SONIC_KEYSTORE})
+	add_custom_command(OUTPUT ${SONIC_KEYSTORE}
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${SONIC_KEYSTORE_DIR}
+		COMMAND ${SONIC_KEYTOOL} -genkeypair -keystore ${SONIC_KEYSTORE} -storepass android -alias androiddebugkey
+			-keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+		COMMENT "The debug key: ${SONIC_KEYSTORE}"
+		VERBATIM)
+endif()
 add_custom_command(OUTPUT ${SONIC_APK}
 	COMMAND ${SONIC_WITH_JAVA} ${SONIC_APKSIGNER} sign --ks ${SONIC_KEYSTORE} --ks-pass pass:android
 		--ks-key-alias androiddebugkey --key-pass pass:android --out ${SONIC_APK} ${SONIC_APK_WORK}/player.apk

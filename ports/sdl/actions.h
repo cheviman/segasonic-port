@@ -12,7 +12,7 @@
 
 #include "console_actions.h"
 
-#include <SDL.h>
+#include "port_sdl.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -24,7 +24,7 @@ typedef struct
 {
 	const char *name;                                  /* as the settings file says it */
 	SDL_Scancode keys[ACTION_KEYS];                    /* SDL_SCANCODE_UNKNOWN: none */
-	SDL_GameControllerButton buttons[ACTION_BUTTONS];  /* SDL_CONTROLLER_BUTTON_INVALID: none */
+	SDL_GamepadButton buttons[ACTION_BUTTONS];  /* SDL_GAMEPAD_BUTTON_INVALID: none */
 } action_binding;
 
 /* Each player's: their keys, and the buttons of their own game controller (the first one plugged in is
@@ -39,11 +39,11 @@ void actions_defaults(int player);    /* (and saved) */
 /* The key or the game controller button pressed for a player's 'action' on the CONTROLS screen: its first
    one now (and saved) */
 void actions_bind_key(int player, int action, SDL_Scancode key);
-void actions_bind_button(int player, int action, SDL_GameControllerButton button);
+void actions_bind_button(int player, int action, SDL_GamepadButton button);
 
 /* Once a frame (and while paused): the actions held now and the ones newly held, each player's with their
    keys, their game controller's buttons and its left stick (controllers[player], ACTION_PLAYERS of them) */
-void actions_read(SDL_GameController *const *controllers);
+void actions_read(SDL_Gamepad *const *controllers);
 uint32_t actions_held(void);       /* any player's: the menus' */
 uint32_t actions_pressed(void);
 uint32_t actions_player_held(int player);
@@ -51,7 +51,7 @@ uint32_t actions_player_pressed(int player);
 
 /* A player's keys and game controller buttons alone (one held), without the stick: for the board's own
    controls, which take the sticks apart */
-bool actions_holds(int player, SDL_GameController *pad, int action);
+bool actions_holds(int player, SDL_Gamepad *pad, int action);
 
 /* Player 1's actions the touch screen holds now (touch.c), for actions_read to count with their keys */
 void actions_touch(uint32_t actions);

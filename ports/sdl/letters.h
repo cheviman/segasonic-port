@@ -10,10 +10,10 @@
  *    license:BSD-3-Clause
  *    font.bmp (tools/make_font.py): a 16 x 16 cell a character from 20h, each as wide as its lit columns.
  */
-#ifndef SONIC_SDL2_LETTERS_H
-#define SONIC_SDL2_LETTERS_H
+#ifndef SONIC_SDL_LETTERS_H
+#define SONIC_SDL_LETTERS_H
 
-#include <SDL.h>
+#include "port_sdl.h"
 
 #define LETTERS_CELL 16
 

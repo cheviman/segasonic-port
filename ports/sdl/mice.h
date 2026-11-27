@@ -1,17 +1,17 @@
 /**
  *    Name:        mice.h
- *    Description: one trackball a mouse: each mouse the system has is told apart (on Windows, by Raw Input)
- *                 and is a player's trackball, the first mouse player 1's, the next to press a button the
- *                 next player's. Without it (another system, or no raw input) the window's one mouse is
- *                 player 1's, as before.
+ *    Description: one trackball a mouse: each mouse SDL tells apart (its id in every mouse event, by the
+ *                 system's raw input: Windows') is a player's trackball, the first mouse player 1's, the next to
+ *                 press a button the next player's. Without it (a system that does not tell them apart, or no
+ *                 raw input) the window's one mouse is player 1's, as before.
  *    Version:     0.1.0
  *    Created:     26-10-2026
- *    Modified:    26-10-2026
+ *    Modified:    27-11-2026
  *
  *    license:BSD-3-Clause
  */
-#ifndef SONIC_SDL2_MICE_H
-#define SONIC_SDL2_MICE_H
+#ifndef SONIC_SDL_MICE_H
+#define SONIC_SDL_MICE_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -35,16 +35,5 @@ bool mice_seen(void);
 
 /* All forgotten (before a game; the mice come again with their next movement) */
 void mice_reset(void);
-
-#ifdef _WIN32
-/* Starts listening to the mice of the SDL window ('window' is an SDL_Window *); false if Windows would not */
-bool mice_open(void *window);
-
-/* Once a frame: the window's registration for raw input is put back (SDL's own relative mouse mode takes it
-   away when it ends) */
-void mice_update(void);
-
-void mice_close(void);
-#endif
 
 #endif

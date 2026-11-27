@@ -36,7 +36,7 @@ its console. With options, from a command line, it is a console program and noth
 SegaSonic APK --rom sonic.zip --icon my_icon.png --base android/segasonic-base.apk --out SegaSonic.apk
 ```
 
-When it cannot show its window (no display, no `font.bmp` beside it, a build without SDL2), the tool started
+When it cannot show its window (no display, no `font.bmp` beside it, a build without SDL3), the tool started
 with nothing makes the APK at once with the defaults, in its console.
 
 Copy `SegaSonic.apk` to the phone and open it there (Android asks once to allow installing from that app),
@@ -93,8 +93,8 @@ byte for byte, on any computer.
 cmake --build build/cmake --config Release --target segasonic_apk_maker
 ```
 
-Its window is built where the game's is, with SDL2 (with `font.bmp`, and on Windows `SDL2.dll` unless SDL2 is
-built in); without SDL2 the tool is its command line alone. It lands in `build/bin/`, beside
+Its window is built where the game's is, with SDL3 (with `font.bmp`, and on Windows `SDL3.dll` unless SDL3 is
+built in); without SDL3 the tool is its command line alone. It lands in `build/bin/`, beside
 `build/bin/android/`, so from the repository it makes the APK at once:
 
 ```bash
@@ -112,7 +112,7 @@ and `zipalign -c -p 4 SegaSonic.apk`.
 | `sign.c` | APK Signature Scheme v2: the digests, the signed data, the APK Signing Block |
 | `key.c` | the player's key: made once, kept as PKCS #8 with a self-signed X.509 certificate, read back |
 | `ecdsa.c` | ECDSA on P-256 with SHA-256 (RFC 6979's nonce) and HMAC-SHA256; SHA-256 is SegaSonic NSP's (`ports/switch/nsp/crypto.c`) |
-| `window.c` | the window (SDL2, with Kenney Mini's letters, `ports/sdl2/letters.c`, and SegaSonic NSP's folder dialog, `ports/switch/nsp/folder_dialog.c`) |
+| `window.c` | the window (SDL3, with Kenney Mini's letters, `ports/sdl/letters.c`, and SegaSonic NSP's folder dialog, `ports/switch/nsp/folder_dialog.c`) |
 
 Nothing of the game, the ROM set, the key or the player's own icon is in this repository: the APK is made on
 the player's computer, from the player's files. SegaSonic The Hedgehog is a trademark of SEGA; this project is

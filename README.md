@@ -44,7 +44,7 @@ runs keep the packages as artifacts. Unpack it anywhere:
 | Anbernic `segasonic-anbernic.zip` | `PORTS/`, the folder for the handheld's `Roms/`: `SegaSonic.sh` and the game in `segasonic/`, where your `segasonic.assets` goes (below) |
 
 Each has a `README.txt` that says which game is which, and the licenses of what the executables contain
-(`LICENSE.txt`, `licenses/`). SDL2 and the C runtime
+(`LICENSE.txt`, `licenses/`). SDL3 and the C runtime
 are built into the executables: nothing else to install. The macOS apps are not signed by a developer: the
 first time, open one with right click → Open (on macOS 15 and later, try to open it, then System Settings →
 Privacy & Security → Open Anyway).
@@ -250,10 +250,10 @@ OPTIONS → CONTROLS changes the buttons. More in [ports/anbernic/README.md](por
 ## Building
 
 Requirements: CMake 3.20 or newer, a C11 / C++17 compiler (Visual Studio Build Tools on Windows, GCC or
-Clang elsewhere), Python 3.10 or newer, and SDL2: on Windows `SDL2-devel-2.x.x-VC.zip` from
-[SDL's releases](https://github.com/libsdl-org/SDL/releases) unpacked into `build/downloads/sdl2/` (or
-`SDL2_DIR` pointed at it), on Linux the system's (`libsdl2-dev`), on macOS Homebrew's (`sdl2`). With
-`-DSEGASONIC_STATIC_SDL2=ON` the build takes SDL2's source instead and builds it into the executables, as
+Clang elsewhere), Python 3.10 or newer, and SDL3: on Windows `SDL3-devel-3.4.20-VC.zip` from
+[SDL's releases](https://github.com/libsdl-org/SDL/releases) unpacked into `build/downloads/sdl3/` (or
+`SDL3_DIR` pointed at it), on Linux the system's (`libsdl3-dev`), on macOS Homebrew's (`sdl3`). With
+`-DSEGASONIC_STATIC_SDL=ON` the build takes SDL3's source instead and builds it into the executables, as
 the downloads are.
 
 MULTIPLAYER needs [arcade-lan](https://github.com/cheviman/arcade-lan), the submodule `lan/`: clone with
@@ -322,7 +322,7 @@ and comes here by merge:
 console/                the console version: what it changes in the game (replaced.txt) and how
                         (console.c), MULTIPLAYER's game (lan.c), and what is next (PLAN.md)
 lan/                    arcade-lan (a submodule): the rooms and the game in lockstep on the local network
-ports/sdl2/             the window: the picture, sound and controls on SDL2, the settings, the first run
+ports/sdl/              the window: the picture, sound and controls on SDL3, the settings, the first run
                         (first_run.c), the console's actions and their keys (actions.c, controls.ini),
                         the pictures of Kenney's (prompts/, font/), the executables' icon (icon/,
                         tools/make_icon.py)
@@ -330,7 +330,7 @@ ports/headless/         the game without a window, for checks and screenshots
 ports/switch/           the Nintendo Switch: its build (switch.cmake) and SegaSonic NSP, the tool that
                         makes the .nsp on the player's computer (nsp/; tools/check_nsp.py checks one)
 ports/android/          Android: its build with the NDK, without Gradle (android.cmake), the touch
-                        controls (ports/sdl2/touch.c) and SegaSonic APK, the tool that makes the APK on the
+                        controls (ports/sdl/touch.c) and SegaSonic APK, the tool that makes the APK on the
                         player's computer (apk/)
 ports/anbernic/         Anbernic's H700 handhelds: the build with Zig (zig_aarch64.cmake), the launcher
 runtime/src/workers.c   the video's rows on several threads, as the game devices draw it
@@ -350,10 +350,10 @@ anyone asks you to pay for this game, it is not this project.
 
 - The game: *SegaSonic The Hedgehog*, SEGA, 1993.
 - [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB): the game controllers' mappings
-  the games carry (`ports/sdl2/controllerdb/`, zlib License).
+  the games carry (`ports/sdl/controllerdb/`, zlib License).
 - [Kenney](https://kenney.nl): Input Prompts Pixel, the keys and buttons of CONTROLS
-  (`ports/sdl2/prompts/`), and Kenney Mini (Kenney Fonts), the letters of the first run's window
-  (`ports/sdl2/font/`); both CC0.
+  (`ports/sdl/prompts/`), and Kenney Mini (Kenney Fonts), the letters of the first run's window
+  (`ports/sdl/font/`); both CC0.
 - [MAME](https://www.mamedev.org): the reference the game is checked against (its V60 and Z80 cores, its
   System 32 video and RF5C68), and [ymfm](https://github.com/aaronsgiles/ymfm), the YM3438's.
 - [SDL](https://www.libsdl.org) (zlib license), built into the executables.

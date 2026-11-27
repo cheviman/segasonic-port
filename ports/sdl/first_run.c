@@ -4,7 +4,7 @@
  *                 macOS beside its .app) or where it keeps its files, or dropped on a window that asks for it
  *    Version:     0.1.0
  *    Created:     20-10-2026
- *    Modified:    23-10-2026
+ *    Modified:    27-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -17,7 +17,7 @@
 
 #include "game/extract.h"
 
-#include <SDL.h>
+#include "port_sdl.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -55,7 +55,7 @@ static void draw_window(SDL_Renderer *renderer, const letters *font, const char 
    the game is beside the .app); 0 elsewhere */
 static int app_folder(const char *base, char *folder, size_t size)
 {
-#ifdef __APPLE__
+#ifdef SDL_PLATFORM_APPLE
 	static const char inside[] = ".app/Contents/Resources/";
 	const size_t length = base ? strlen(base) : 0, tail = sizeof(inside) - 1;
 	size_t end;
@@ -79,14 +79,14 @@ static int app_folder(const char *base, char *folder, size_t size)
 static int found_beside(const char *folder, const char *pack)
 {
 	char path[1024];
-	SDL_RWops *probe;
+	SDL_IOStream *probe;
 
 	if (!folder)
 		return 0;
 	snprintf(path, sizeof(path), "%s" ROM_SET_FILE, folder);
-	if (!(probe = SDL_RWFromFile(path, "rb")))
+	if (!(probe = SDL_IOFromFile(path, "rb")))
 		return 0;
-	SDL_RWclose(probe);
+	SDL_CloseIO(probe);
 	return game_data_extract(path, pack) == NULL;
 }
 
@@ -101,9 +101,8 @@ int first_run(const char *base, const char *saves, const char *pack)
 	if (found_beside(base, pack) || (app_folder(base, beside_app, sizeof(beside_app)) && found_beside(beside_app, pack))
 		|| found_beside(saves, pack))
 		return 1;
-	window = SDL_CreateWindow("SegaSonic The Hedgehog", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		WINDOW_WIDTH, WINDOW_HEIGHT, 0);
-	renderer = window ? SDL_CreateRenderer(window, -1, 0) : NULL;
+	window = SDL_CreateWindow("SegaSonic The Hedgehog", WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+	renderer = window ? SDL_CreateRenderer(window, NULL) : NULL;
 	if (!renderer || !letters_load(renderer, base, &font))
 	{
 		/* (no window or no letters: the message alone) */
@@ -116,7 +115,7 @@ int first_run(const char *base, const char *saves, const char *pack)
 			"rev. C). Put sonic.zip beside the game and start it again.", NULL);
 		return 0;
 	}
-	SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
+	SDL_SetEventEnabled(SDL_EVENT_DROP_FILE, true);
 	draw_window(renderer, &font, NULL, 0);
 	while (running && !done)
 	{
@@ -124,15 +123,14 @@ int first_run(const char *base, const char *saves, const char *pack)
 
 		if (!SDL_WaitEvent(&event))
 			break;
-		if (event.type == SDL_QUIT)
+		if (event.type == SDL_EVENT_QUIT)
 			running = 0;
-		else if (event.type == SDL_DROPFILE)
+		else if (event.type == SDL_EVENT_DROP_FILE)
 		{
 			const char *failed;
 
 			draw_window(renderer, &font, NULL, 1);
-			failed = game_data_extract(event.drop.file, pack);
-			SDL_free(event.drop.file);
+			failed = game_data_extract(event.drop.data, pack);
 			if (!failed)
 				done = 1;
 			else
@@ -144,7 +142,7 @@ int first_run(const char *base, const char *saves, const char *pack)
 				draw_window(renderer, &font, problem, 0);
 			}
 		}
-		else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_EXPOSED)
+		else if (event.type == SDL_EVENT_WINDOW_EXPOSED)
 			draw_window(renderer, &font, problem[0] ? problem : NULL, 0);
 	}
 	letters_free(&font);

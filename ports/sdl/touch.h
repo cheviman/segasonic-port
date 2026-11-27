@@ -12,7 +12,7 @@
 #ifndef SEGASONIC_PORT_TOUCH_H
 #define SEGASONIC_PORT_TOUCH_H
 
-#include <SDL.h>
+#include "port_sdl.h"
 #include <stdint.h>
 
 #define TOUCH_STICK_FULL 32767    /* the stick leaning all the way, as a game controller's left stick */

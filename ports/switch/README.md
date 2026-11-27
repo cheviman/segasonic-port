@@ -48,7 +48,7 @@ once in its console. With options, from a command line, it is a console program 
 SegaSonic NSP --keys prod.keys --rom sonic.zip --icon my_icon.jpg --out SegaSonic.nsp
 ```
 
-When it cannot show its window (no display, no `font.bmp` beside it, a build without SDL2), the tool
+When it cannot show its window (no display, no `font.bmp` beside it, a build without SDL 3), the tool
 started with nothing makes the `.nsp` at once with the defaults, in its console, as with files dropped on
 it.
 
@@ -95,8 +95,8 @@ without the `.nro`.
 cmake --build build/cmake --config Release --target segasonic_nsp
 ```
 
-Its window is built where the game's is, with SDL2 (with `font.bmp`, and on Windows `SDL2.dll` unless
-SDL2 is built in); without SDL2 the tool is its command line alone. It lands in `build/bin/`, beside
+Its window is built where the game's is, with SDL 3 (with `font.bmp`, and on Windows `SDL3.dll` unless
+SDL 3 is built in); without SDL 3 the tool is its command line alone. It lands in `build/bin/`, beside
 `build/bin/switch/`, so from the repository it makes the `.nsp` at once:
 
 ```bash
@@ -148,10 +148,10 @@ starts (`crypto.c`). The same inputs make the same `.nsp`.
 | `nsp/formats.c` | PFS0, RomFS, the hashed sections, the NCA, the content meta |
 | `nsp/make_nsp.c` | the `.nsp` from its inputs, for the command line and the window: the three NCAs, the `.nsp`; the inputs' defaults |
 | `nsp/main.c` | the tool's command line; started with nothing, its window |
-| `nsp/window.c` | the window (SDL2, with Kenney Mini's letters: `ports/sdl2/letters.c`): the inputs and their state, files dropped on it, the `.nsp` made on a thread of its own |
+| `nsp/window.c` | the window (SDL 3, with Kenney Mini's letters: `ports/sdl/letters.c`): the inputs and their state, files dropped on it, the `.nsp` made on a thread of its own |
 | `nsp/folder_dialog.c` | the system's folder dialog: Windows' (COM's `IFileOpenDialog`), macOS's (`osascript`), Linux's (`zenity` or `kdialog`) |
 
-The game's own changes for the Switch are in `ports/sdl2/` (`__SWITCH__`: the romfs, the SD card folder,
+The game's own changes for the Switch are in `ports/sdl/` (`__SWITCH__`: the romfs, the SD card folder,
 the screen; `SEGASONIC_HANDHELD`: the fixed picture and controls) and in `console/console.c`
 (`SEGASONIC_HANDHELD`: OPTIONS without VIDEO and CONTROLS; `SEGASONIC_SYSTEM_EXIT`: no EXIT).
 

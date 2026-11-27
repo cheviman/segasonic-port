@@ -16,7 +16,7 @@
  */
 #include "settings.h"
 
-#include <SDL.h>
+#include "port_sdl.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,8 +73,9 @@ static const entry entries[] = {
 		"trackball counts a pixel of mouse movement (F5 and F6 change it while playing)",
 		&settings.mouse_speed, NULL, 0.05, 4.0 },
 	{ "mouse", "separate",
-		"yes: on Windows each mouse is a trackball of its own, the first one player 1's and the next ones that\n"
-		"press a button players 2 and 3, each with its own buttons; no: the mouse is player 1's",
+		"yes: each mouse the system tells apart (Windows does) is a trackball of its own, the first one player\n"
+		"1's and the next ones that press a button players 2 and 3, each with its own buttons; no: the mouse is\n"
+		"player 1's",
 		NULL, &settings.separate_mice, 0.0, 0.0 },
 	{ "mouse", "rolls_on",
 		"yes: the mouse turns a ball that keeps rolling when the mouse stops or is lifted, as the arcade's\n"

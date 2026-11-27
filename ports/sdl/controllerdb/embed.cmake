@@ -24,8 +24,8 @@ string(REPLACE "0x0d," "" bytes "${bytes}")    # (no carriage returns: SDL split
 string(REGEX MATCHALL "0x" each "${bytes}")
 list(LENGTH each size)
 string(REPLACE "\n" "\n\t" bytes "${bytes}")
-file(WRITE "${OUT}" "/* SDL_GameControllerDB's ${count} mappings for ${PLATFORM} (ports/sdl2/controllerdb, zlib License),
-   written by ports/sdl2/controllerdb/embed.cmake: the mappings' lines and a 0 */
+file(WRITE "${OUT}" "/* SDL_GameControllerDB's ${count} mappings for ${PLATFORM} (ports/sdl/controllerdb, zlib License),
+   written by ports/sdl/controllerdb/embed.cmake: the mappings' lines and a 0 */
 #include <stddef.h>
 
 const unsigned char segasonic_controller_db[] = {

@@ -5,7 +5,7 @@
 # Modified:    07-11-2026
 # Author:      Sebastian Toyos
 cmake_minimum_required(VERSION 3.20)
-project(segasonic VERSION 1.4.1 LANGUAGES C CXX)    # (the port's release: OPTIONS shows it, the executables carry it)
+project(segasonic VERSION 1.5.0 LANGUAGES C CXX)    # (the port's release: OPTIONS shows it, the executables carry it)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

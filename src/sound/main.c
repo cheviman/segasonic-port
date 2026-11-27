@@ -583,13 +583,17 @@ void copy_sample_page(uint16_t *p_wave_address, uint16_t *p_sample_address)
 	uint16_t wave_address = (uint16_t)*p_wave_address;
 	uint16_t sample_address = (uint16_t)*p_sample_address;
 
-	z80_block(4106);
-	for (uint32_t repeat = 0; repeat < 256u; repeat++)
+	for (uint32_t repeat = 0; repeat < 255u; repeat++)
 	{
+		z80_block(16);
 		z80_write8(wave_address, z80_read8(sample_address));
 		sample_address++;
 		wave_address++;
 	}
+	z80_block(26);
+	z80_write8(wave_address, z80_read8(sample_address));
+	sample_address++;
+	wave_address++;
 	*p_wave_address = wave_address;
 	*p_sample_address = sample_address;
 }

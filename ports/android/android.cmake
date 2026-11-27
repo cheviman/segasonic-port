@@ -9,7 +9,7 @@
 # Included by CMakeLists.txt when the toolchain is the NDK's (build/cmake/android.toolchain.cmake, with
 # ANDROID_ABI and ANDROID_PLATFORM). The game is the console build with its picture fixed and WIDE
 # (SEGASONIC_HANDHELD, SEGASONIC_SCREEN_WIDE), no EXIT in its menu (SEGASONIC_SYSTEM_EXIT: Android's home
-# leaves it) but in the pause (SEGASONIC_PAUSE_EXIT) and the touch screen's controls (SEGASONIC_TOUCH), in
+# leaves it) but in the pause (CONTINUE and EXIT, as everywhere) and the touch screen's controls (SEGASONIC_TOUCH), in
 # libmain.so, which SDL's activity starts (its Java, from SDL's source). The APKs are put together without
 # Gradle, by the SDK's own tools: javac and d8 (the Java), aapt2 (the manifest, the icon, the assets), aapt (the libraries and the Java in), zipalign
 # and apksigner. Android makes nothing from the ROM set: an APK carries the assets pack taken out of the
@@ -23,7 +23,7 @@
 #                                           keeps what the game wrote)
 
 target_compile_definitions(sonic_game_console PUBLIC SEGASONIC_HANDHELD SEGASONIC_SYSTEM_EXIT SEGASONIC_SCREEN_WIDE
-	SEGASONIC_PAUSE_EXIT SEGASONIC_TOUCH)
+	SEGASONIC_TOUCH)
 
 set(SONIC_ANDROID_VERSION ${PROJECT_VERSION})    # (CMakeLists.txt's project version, the port's release)
 math(EXPR SONIC_ANDROID_VERSION_CODE

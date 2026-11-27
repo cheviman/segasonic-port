@@ -3784,12 +3784,10 @@ void run_test_mode(uint32_t pressed, uint16_t count, uint32_t *p_color, uint32_t
 #define PAUSE_ROW          2u
 
 static uint16_t pause_saved[40];
-#ifdef SEGASONIC_PAUSE_EXIT
-/* (Android's: the pause's choices, CONTINUE and EXIT, a row apart in the screen's middle) */
+/* (the pause's choices, CONTINUE and EXIT, a row apart in the screen's middle) */
 static const char *const pause_items[CONSOLE_PAUSE_ITEMS] = { "CONTINUE", "EXIT" };
 static uint16_t pause_menu_saved[CONSOLE_PAUSE_ITEMS][40];
 static int pause_choice;
-#endif
 
 void console_actions(uint32_t pressed, uint32_t held)
 {
@@ -3893,16 +3891,13 @@ bool console_in_game(void)
 void console_pause_text(bool shown)
 {
 	uint32_t column;
-#ifdef SEGASONIC_PAUSE_EXIT
 	int item;
-#endif
 
 	if (shown)
 	{
 		for (column = 0; column < 40u; column++)
 			pause_saved[column] = mem_read16(TEXT_CELL(column, PAUSE_ROW));
 		write_centered(PAUSE_ROW, "PAUSE", MENU_CHOSEN);
-#ifdef SEGASONIC_PAUSE_EXIT
 		for (item = 0; item < CONSOLE_PAUSE_ITEMS; item++)
 		{
 			const uint32_t row = CONSOLE_PAUSE_MENU_ROW + 2u * (uint32_t)item;
@@ -3911,25 +3906,20 @@ void console_pause_text(bool shown)
 				pause_menu_saved[item][column] = mem_read16(TEXT_CELL(column, row));
 			write_centered(row, pause_items[item], item == pause_choice ? MENU_CHOSEN : MENU_TEXT);
 		}
-#endif
 		return;
 	}
 	for (column = 0; column < 40u; column++)
 		mem_write16(TEXT_CELL(column, PAUSE_ROW), pause_saved[column]);
-#ifdef SEGASONIC_PAUSE_EXIT
 	for (item = 0; item < CONSOLE_PAUSE_ITEMS; item++)
 		for (column = 0; column < 40u; column++)
 			mem_write16(TEXT_CELL(column, CONSOLE_PAUSE_MENU_ROW + 2u * (uint32_t)item),
 				pause_menu_saved[item][column]);
-#endif
 }
 
-#ifdef SEGASONIC_PAUSE_EXIT
 void console_pause_choice(int choice)
 {
 	pause_choice = choice;
 }
-#endif
 
 bool console_quit_requested(void)
 {
@@ -4008,9 +3998,7 @@ void console_power_on(void)
 	panel_sides_shown = false;
 	memset(chooser_rolling, 0, sizeof(chooser_rolling));
 	memset(join_chooser_rolling, 0, sizeof(join_chooser_rolling));
-#ifdef SEGASONIC_PAUSE_EXIT
 	pause_choice = 0;
-#endif
 	lan_open = false;
 	name_then = -1;
 	lan_blink = 0u;

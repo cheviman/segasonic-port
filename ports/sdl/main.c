@@ -418,7 +418,7 @@ static void clear_screen(const SDL_Rect *shown, double scale, int out_width, int
 #endif
 }
 
-#ifdef SEGASONIC_PAUSE_EXIT
+#ifdef SEGASONIC_CONSOLE
 static SDL_Rect picture_shown;    /* where the last frame was on the screen */
 #endif
 
@@ -509,8 +509,8 @@ static void present(const uint32_t *pixels, int width, bool game_frame)
 #ifdef SEGASONIC_TOUCH
 	touch_draw(renderer);    /* (over the picture: the touch screen's controls) */
 #endif
-#ifdef SEGASONIC_PAUSE_EXIT
-	picture_shown = shown;    /* (the pause's choices under a finger: pause_item_at) */
+#ifdef SEGASONIC_CONSOLE
+	picture_shown = shown;    /* (the pause's choices under a finger or the mouse: pause_item_at) */
 #endif
 	if (!game_frame || !frame_behind())
 		SDL_RenderPresent(renderer);
@@ -1451,7 +1451,6 @@ static void draw_pause_picture(int *width)
 	draw_frame();
 }
 
-#ifdef SEGASONIC_PAUSE_EXIT
 /* The pause's choice under a finger at (x, y) (SDL's, 0 to 1 across the screen), or -1: a choice's row and
    half a row over and under it, across the picture's middle half */
 static int pause_item_at(float x, float y)
@@ -1471,20 +1470,18 @@ static int pause_item_at(float x, float y)
 			return item;
 	return -1;
 }
-#endif
 
 /* The actions start or back in a stage: the game stops, its sound too, until one of them is pressed
    again. The mouse is the pointer again (the window's close button, another window), until a click in
-   the window takes it back. Android's (SEGASONIC_PAUSE_EXIT) has its choices: CONTINUE, or EXIT, which
-   ends the game as the title's EXIT does elsewhere */
+   the window takes it back. Its choices, CONTINUE or EXIT (which ends the game as the title's EXIT does), on
+   every platform: up and down and accept, a finger on one, or on a computer the mouse over one and a click
+   (Sebas, 27-11-2026; Android's only before) */
 static void run_pause(void)
 {
 	int width;
 	SDL_Event event;
 	bool paused = true;
-#ifdef SEGASONIC_PAUSE_EXIT
 	int choice = CONSOLE_PAUSE_CONTINUE, picked = -1;
-#endif
 
 	pause_requested = false;
 #ifdef SEGASONIC_HANDHELD_KEYS
@@ -1494,9 +1491,7 @@ static void run_pause(void)
 	SDL_SetWindowRelativeMouseMode(window, false);
 	if (audio)
 		SDL_PauseAudioStreamDevice(audio);
-#ifdef SEGASONIC_PAUSE_EXIT
 	console_pause_choice(choice);
-#endif
 	draw_pause_picture(&width);
 	present(pause_picture, width, false);
 	while (paused)
@@ -1522,10 +1517,30 @@ static void run_pause(void)
 #ifdef SEGASONIC_TOUCH
 			if (event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_UP)
 				present(pause_picture, width, false);    /* (START lit while a finger is on it) */
-#endif
-#ifdef SEGASONIC_PAUSE_EXIT
 			if (event.type == SDL_EVENT_FINGER_DOWN && pause_item_at(event.tfinger.x, event.tfinger.y) >= 0)
 				picked = pause_item_at(event.tfinger.x, event.tfinger.y);    /* (a choice touched: picked) */
+#endif
+#ifndef SEGASONIC_HANDHELD
+			/* a computer's mouse, the pointer in the pause: over a choice it is chosen, and a click picks it */
+			if (event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+			{
+				const bool click = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+				const float x = click ? event.button.x : event.motion.x, y = click ? event.button.y : event.motion.y;
+				int window_width = 0, window_height = 0, item = -1;
+
+				SDL_GetWindowSize(window, &window_width, &window_height);
+				if (window_width > 0 && window_height > 0)
+					item = pause_item_at(x / (float)window_width, y / (float)window_height);
+				if (item >= 0 && item != choice)
+				{
+					choice = item;
+					console_pause_choice(choice);
+					draw_pause_picture(&width);
+					present(pause_picture, width, false);
+				}
+				if (item >= 0 && click && event.button.button == SDL_BUTTON_LEFT)
+					picked = item;
+			}
 #endif
 #ifdef __ANDROID__
 			if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.scancode == SDL_SCANCODE_AC_BACK)
@@ -1538,7 +1553,6 @@ static void run_pause(void)
 		actions_read(controllers);
 		if (actions_pressed() & PAUSE_ACTIONS)
 			paused = false;
-#ifdef SEGASONIC_PAUSE_EXIT
 		/* up and down move to a choice, accept picks it; CONTINUE goes on once the button that picked it is let
 		   go (held into the stage, it would jump) */
 		if (actions_pressed() & (ACTION_BIT(ACTION_UP) | ACTION_BIT(ACTION_DOWN)))
@@ -1554,7 +1568,6 @@ static void run_pause(void)
 			longjmp(finished, 1);
 		if (picked == CONSOLE_PAUSE_CONTINUE && !(actions_held() & ACTION_BIT(ACTION_ACCEPT)))
 			paused = false;
-#endif
 		wait_for_frame();    /* (the frames' pace, as everywhere: never a sleep of its own) */
 	}
 	if (audio)

@@ -142,9 +142,8 @@ void console_debug_section(int step);
    continue, the stage clear, nor the attract mode's demos): start pauses it */
 bool console_in_game(void);
 
-/* "PAUSE" on the text layer's top (shown), or the cells it covered back as they were; with
-   SEGASONIC_PAUSE_EXIT (Android's) its choices too, CONTINUE and EXIT, in the text layer's rows
-   CONSOLE_PAUSE_MENU_ROW and two under it */
+/* "PAUSE" on the text layer's top (shown), or the cells it covered back as they were; its choices too,
+   CONTINUE and EXIT, in the text layer's rows CONSOLE_PAUSE_MENU_ROW and two under it */
 void console_pause_text(bool shown);
 
 /* ---- MULTIPLAYER, the LAN game (lan.c: arcade-lan, in lockstep) ---- */
@@ -179,7 +178,6 @@ void console_lan_waiting_text(bool shown);
 uint32_t console_lan_frame_number(void);
 uint64_t console_lan_state_hash(void);
 
-#ifdef SEGASONIC_PAUSE_EXIT
 #define CONSOLE_PAUSE_ITEMS     2
 #define CONSOLE_PAUSE_CONTINUE  0
 #define CONSOLE_PAUSE_EXIT      1
@@ -187,6 +185,5 @@ uint64_t console_lan_state_hash(void);
 
 /* The pause's choice in yellow from the next console_pause_text(true) */
 void console_pause_choice(int choice);
-#endif
 
 #endif

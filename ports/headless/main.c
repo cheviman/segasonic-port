@@ -375,6 +375,7 @@ static void pace_frame(void)
 
 #ifdef SEGASONIC_CONSOLE
 static bool lan_restart_wanted;    /* program_run left for a LAN game's start or end (console_lan_reset_wanted) */
+static bool menu_restart_wanted;   /* --actions' exit, the pause's EXIT: program_run left for the main menu */
 #endif
 
 static void on_frame_done(void)
@@ -415,20 +416,24 @@ static void on_frame_done(void)
 		lan_restart_wanted = true;    /* (a LAN game's start or end: the board reset, main's) */
 		longjmp(finished, 1);
 	}
+	if (menu_restart_wanted)
+		longjmp(finished, 1);    /* (the pause's EXIT: the board reset, main's) */
 #endif
 }
 
 #ifdef SEGASONIC_CONSOLE
 /* --actions: the console's actions (console_actions.h) a file presses, as the window port's keys do, one a
    line: "FRAME ACTION [FRAMES]", FRAME a frame number or +N for N frames after the previous line, held FRAMES
-   frames (1 by default) and pressed on the first; '#' starts a comment */
+   frames (1 by default) and pressed on the first; '#' starts a comment. ACTION "exit" is the pause's EXIT: at that
+   frame's end the game is left for the main menu, as the window port's EXIT leaves it */
 #define MAX_ACTION_EVENTS 1024
 
 static struct
 {
 	uint64_t frame, frames;
 	console_action action;
-	int section;          /* section+ (1) or section- (-1) instead of an action: the window's F8 and F7 */
+	int section;          /* section+ (1) or section- (-1) instead of an action: the window's F8 and F7; exit (2) */
+	bool done;            /* (exit's: once, as its frame's number comes again after the board's reset) */
 } action_events[MAX_ACTION_EVENTS];
 static int action_event_count;
 
@@ -462,6 +467,8 @@ static bool load_actions(const char *path)
 		while (fields >= 2 && action < ACTIONS && strcmp(name, action_names[action]) != 0)
 			action++;
 		section = fields < 2 ? 0 : (strcmp(name, "section+") == 0 ? 1 : (strcmp(name, "section-") == 0 ? -1 : 0));
+		if (fields >= 2 && strcmp(name, "exit") == 0)
+			section = 2;
 		if (fields < 2 || (action == ACTIONS && !section) || frames == 0 || action_event_count == MAX_ACTION_EVENTS)
 		{
 			fprintf(stderr, "%s:%d: not an action line\n", path, number);
@@ -491,7 +498,12 @@ static void apply_actions(uint64_t frame)
 	int roll_x, roll_y;
 
 	for (int index = 0; index < action_event_count; index++)
-		if (action_events[index].section)
+		if (action_events[index].section == 2)
+		{
+			if (frame == action_events[index].frame && !action_events[index].done)
+				menu_restart_wanted = action_events[index].done = true;
+		}
+		else if (action_events[index].section)
 		{
 			if (frame == action_events[index].frame)
 				console_debug_section(action_events[index].section);
@@ -822,6 +834,27 @@ int main(int argc, char **argv)
 		if (!setjmp(finished))
 			program_run();
 #ifdef SEGASONIC_CONSOLE
+		if (menu_restart_wanted && FRAMES_RUN < frames_wanted)
+		{
+			/* (the pause's EXIT: the sound board, the board and the program as at power-on with the same EEPROM, as
+			   the window port's restart, the console as at power-on with the title's menu open) */
+			uint8_t eeprom[sizeof(s32_board.eeprom.data)];
+
+			menu_restart_wanted = false;
+			frames_before_reset += program_frames();
+			vblanks_before_reset += s32_board.frame;
+			memcpy(eeprom, s32_board.eeprom.data, sizeof(eeprom));
+			if (lan_sound || sound_hashes_path || sound_levels_path)
+			{
+				sound_chips_attach();
+				sound_cpu_power_on();
+			}
+			s32_init(game_program);
+			memcpy(s32_board.eeprom.data, eeprom, sizeof(eeprom));
+			console_menu_power_on();
+			program_reset();
+			continue;
+		}
 		if (lan_restart_wanted && FRAMES_RUN < frames_wanted)
 		{
 			/* (a LAN game's start or end: the sound board, the board and the program as at power-on, as the window

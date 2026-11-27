@@ -4024,3 +4024,12 @@ void console_power_on(void)
 	name_then = -1;
 	lan_blink = 0u;
 }
+
+/* The pause's EXIT, the board reset by the port: as at power-on, and the title opens its menu on START GAME once its
+   emblem is up, as it does back from OPTIONS (console.h) */
+void console_menu_power_on(void)
+{
+	console_power_on();
+	menu_after_title = true;
+	menu_after_choice = MENU_START_GAME;
+}

@@ -188,4 +188,9 @@ uint64_t console_lan_state_hash(void);
 /* The pause's choice in yellow from the next console_pause_text(true) */
 void console_pause_choice(int choice);
 
+/* The pause's EXIT leaves the game for the main menu, not the program (Sebas, 27-11-2026): at the frame's end the port
+   leaves the program and resets the board as at power-on (s32_init, its own EEPROM, the sound board), as for a LAN
+   game's end, then calls this: the console as at power-on, and the title with its menu open on START GAME */
+void console_menu_power_on(void);
+
 #endif

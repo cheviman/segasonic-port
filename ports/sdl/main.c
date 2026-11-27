@@ -76,6 +76,7 @@
 
 #ifdef SEGASONIC_CONSOLE
 static bool lan_restart_wanted;     /* program_run was left for a LAN game's start or end (console_lan_reset_wanted) */
+static bool menu_restart_wanted;    /* program_run was left for the pause's EXIT: the main menu (restart) */
 static bool pause_requested;
 static bool bound_now;              /* CONTROLS took a key or button this frame */
 static void run_pause(void);
@@ -1620,9 +1621,9 @@ static int pause_item_at(float x, float y)
 
 /* The actions start or back in a stage: the game stops, its sound too, until one of them is pressed
    again. The mouse is the pointer again (the window's close button, another window), until a click in
-   the window takes it back. Its choices, CONTINUE or EXIT (which ends the game as the title's EXIT does), on
-   every platform: up and down and accept, a finger on one, or on a computer the mouse over one and a click
-   (Sebas, 27-11-2026; Android's only before) */
+   the window takes it back. Its choices, CONTINUE or EXIT (which leaves the game for the main menu: the title's
+   EXIT is the one that ends the program), on every platform: up and down and accept, a finger on one, or on a
+   computer the mouse over one and a click (Sebas, 27-11-2026; Android's only before) */
 static void run_pause(void)
 {
 	int width;
@@ -1712,7 +1713,10 @@ static void run_pause(void)
 		if (picked < 0 && (actions_pressed() & ACTION_BIT(ACTION_ACCEPT)))
 			picked = choice;
 		if (picked == CONSOLE_PAUSE_EXIT)
+		{
+			menu_restart_wanted = true;    /* (the game left for the main menu: the board reset, main's) */
 			longjmp(finished, 1);
+		}
 		if (picked == CONSOLE_PAUSE_CONTINUE && !(actions_held() & ACTION_BIT(ACTION_ACCEPT)))
 			paused = false;
 		wait_for_frame();    /* (the frames' pace, as everywhere: never a sleep of its own) */
@@ -1869,30 +1873,40 @@ static void log_pace(bool frame_made)
 #endif
 
 #ifdef SEGASONIC_CONSOLE
-/* A LAN game's start or end (console_lan_reset_wanted), with the program left: the sound board, the board and the
-   program as at power-on, the same on every device (the board's time from 0 again); this device's EEPROM, written
-   before a game and read again after it (a game's is the host's: console_lan_power_on puts it over the board's), the
-   console's state, and the sound and the controls from nothing */
-static void lan_restart(void)
+/* A LAN game's start or end (console_lan_reset_wanted), or the pause's EXIT (menu_restart_wanted), with the program
+   left: the sound board, the board and the program as at power-on, the same on every device (the board's time from 0
+   again); this device's EEPROM, written before a game and read again after it (a game's is the host's:
+   console_lan_power_on puts it over the board's), the console's state (the pause's EXIT: the title with its menu
+   open), and the sound and the controls from nothing; the sound going again, which the pause stopped */
+static void restart(bool lan)
 {
 	save_eeprom();    /* (before a game: this device's own, read again after it) */
 	sound_chips_attach();
 	sound_cpu_power_on();
 	s32_init(game_program);
 	load_eeprom();
-	console_lan_power_on();
+	if (lan)
+		console_lan_power_on();
+	else
+		console_menu_power_on();
 	program_reset();
 	for (int chip = 0; chip < 3; chip++)
 		chips[chip].count = 0, chips[chip].position = 0.0;
 	if (audio)
+	{
 		SDL_ClearAudioStream(audio);
+		SDL_ResumeAudioStreamDevice(audio);
+	}
 	SDL_zero(controls);
 	SDL_zero(ball);
 	SDL_zero(hand);
 	SDL_zero(mouse_rest);
 	pause_requested = false;
 	next_frame = SDL_GetPerformanceCounter();
-	fprintf(stderr, "MULTIPLAYER: %s\n", console_lan_playing() ? "a game starts" : "the game is over");
+	if (lan)
+		fprintf(stderr, "MULTIPLAYER: %s\n", console_lan_playing() ? "a game starts" : "the game is over");
+	else
+		fprintf(stderr, "The pause's EXIT: the main menu\n");
 }
 #endif
 
@@ -2641,10 +2655,12 @@ int main(int argc, char **argv)
 		if (!setjmp(finished))
 			program_run();
 #ifdef SEGASONIC_CONSOLE
-		if (lan_restart_wanted)
+		if (lan_restart_wanted || menu_restart_wanted)
 		{
-			lan_restart_wanted = false;
-			lan_restart();    /* (a LAN game's start or end: the program from its start again) */
+			const bool lan = lan_restart_wanted;
+
+			lan_restart_wanted = menu_restart_wanted = false;
+			restart(lan);    /* (a LAN game's start or end, or the pause's EXIT: the program from its start again) */
 			continue;
 		}
 #endif

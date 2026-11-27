@@ -4,7 +4,7 @@
  *                 buffers and the mixer, drawing each frame from the board's memories
  *    Version:     0.1.0
  *    Created:     13-10-2026
- *    Modified:    31-10-2026
+ *    Modified:    27-11-2026
  *    Author:      Sebastian Toyos
  *
  *    license:BSD-3-Clause
@@ -211,19 +211,89 @@ static uint16_t page_pixel(int page, int bank, int y, int x)
 	return pen ? (uint16_t)(((cell >> 4) & 0x1ff) << 4 | pen) : 0;
 }
 
-/* A pixel of the text layer (64 x 32 cells of 8x8, a 512 x 256 map). The cells' page and the bank of
-   their graphics come from register 0x5C; the graphics are in video RAM too, 32 bytes a character,
-   four bytes a row, the high nibble first. */
-static uint16_t text_pixel(int y, int x)
+typedef struct scrolled_row
 {
-	const uint16_t control = video_register(0x5c);
-	const uint16_t cell = video_word((uint32_t)((control >> 4) & 0x1f) << 11 | (uint32_t)(y >> 3) << 6 | (uint32_t)(x >> 3));
-	const uint32_t character = (uint32_t)(control & 7) << 9 | (cell & 0x1ff);
-	const uint8_t value = s32_board.video_ram[character * 32 + (y & 7) * 4 + (x & 7) / 2];
-	const int pen = (x & 1) ? (value & 0x0f) : (value >> 4);
+	int pages[2];
+	int bank;
+	int line;
+	int x_start;        /* source column at the left edge */
+	int x_step;
+} scrolled_row;
 
-	return pen ? (uint16_t)(((cell >> 9) & 0x7f) << 4 | pen) : 0;
+/* The 16 pens of one row of a tile, as tile_pen gives them for x = 0 to 15 */
+static void tile_row_pens(uint32_t tile, int line, uint8_t pens[16])
+{
+	static const uint8_t byte_of_column[16] = { 0, 0, 2, 2, 1, 1, 3, 3, 4, 4, 6, 6, 5, 5, 7, 7 };
+	const uint8_t *bytes = &video.tiles[(size_t)(tile % video.tile_count) * 128 + (size_t)line * 8];
+
+	for (int x = 0; x < 16; x++)
+		pens[x] = (x & 1) ? (bytes[byte_of_column[x]] & 0x0f) : (bytes[byte_of_column[x]] >> 4);
 }
+
+/* What draws the pixels of a row from x 'from' up to 'to' (not included), a whole cell at a time */
+typedef void (*pixel_span)(const void *row, uint16_t *pixels, int from, int to);
+
+/* draw_row with the drawn runs filled a span at a time; the same pixels and the same transparent count */
+static void draw_row_spans(layer *out, int y, const uint16_t *runs, bool drawn, pixel_span span, const void *row)
+{
+	uint16_t *pixels = out->pixels[y];
+	int transparent = 0;
+
+	for (;; runs++, drawn = !drawn)
+	{
+		if (drawn)
+		{
+			const int to = runs[1] < WIDTH ? runs[1] : WIDTH;
+
+			if (runs[0] < to)
+			{
+				span(row, pixels, runs[0], to);
+				for (int x = runs[0]; x < to; x++)
+					transparent += pixels[x] == 0;
+			}
+		}
+		else
+		{
+			for (int x = runs[0]; x < runs[1] && x < WIDTH; x++)
+				pixels[x] = 0;
+			transparent += runs[1] - runs[0];
+		}
+		if (runs[1] > video.visible.right)
+			break;
+	}
+	out->empty[y] = transparent == video.visible.right + 1 - video.visible.left;
+}
+
+/* A span of a scrolled row (the column one more or one less a pixel): each cell it crosses is looked up once and
+   its tile's row decoded once, the same pixels page_pixel gives */
+static void scrolled_span(const void *source, uint16_t *pixels, int from, int to)
+{
+	const scrolled_row *row = (const scrolled_row *)source;
+	const uint32_t cell_row = (uint32_t)(row->line >> 4) << 5;
+	const int line = row->line & 15;
+	uint32_t column = (uint32_t)(row->x_start + row->x_step * (from - video.visible.left));
+
+	for (int x = from; x < to;)
+	{
+		const uint32_t index = (uint32_t)row->pages[(column >> 9) & 1] << 9 | cell_row | (column & 0x1ff) >> 4;
+		const uint16_t cell = own_cell_marks && own_cell_marks[index] ? own_cell_words[index] : video_word(index);
+		const uint16_t color = (uint16_t)(((cell >> 4) & 0x1ff) << 4);
+		const int offset = (int)(column & 15);
+		const int count = row->x_step > 0 ? 16 - offset : offset + 1;    /* (the pixels left in this cell) */
+		const int end = x + count < to ? x + count : to;
+		uint8_t pens[16];
+
+		tile_row_pens((uint32_t)row->bank << 13 | (cell & 0x1fff), (cell & 0x8000) ? 15 - line : line, pens);
+		for (int pen_column = offset; x < end; x++, pen_column += row->x_step)
+		{
+			const int pen = pens[(cell & 0x4000) ? 15 - pen_column : pen_column];
+
+			pixels[x] = pen ? (uint16_t)(color | pen) : 0;
+		}
+		column += (uint32_t)(count * row->x_step);
+	}
+}
+
 
 /* ---- clip windows ---- */
 
@@ -476,6 +546,8 @@ typedef struct zoomed_layer
 static void draw_zoomed_rows(void *context, int first, int last)
 {
 	const zoomed_layer *zoomed = (const zoomed_layer *)context;
+	/* (with no zoom across, the source column moves a whole pixel a pixel: the row is drawn as a scrolled one) */
+	const bool whole_pixels = zoomed->x_step == 1u << 20 || zoomed->x_step == 0u - (1u << 20);
 
 	for (int y = first; y <= last; y++)
 	{
@@ -486,8 +558,19 @@ static void draw_zoomed_rows(void *context, int first, int last)
 			zoomed->x_start, zoomed->x_step
 		};
 
-		draw_row(&video.layers[LAYER_NBG0 + zoomed->number], y, video.runs.lists[video.runs.list_of_row[y]],
-			zoomed->first_drawn, zoomed_pixel, &row);
+		if (whole_pixels)
+		{
+			const scrolled_row scrolled = {
+				{ zoomed->pages[half], zoomed->pages[half + 1] }, zoomed->bank, (source_y >> 20) & 0xff,
+				(int)(zoomed->x_start >> 20), zoomed->x_step == 1u << 20 ? 1 : -1
+			};
+
+			draw_row_spans(&video.layers[LAYER_NBG0 + zoomed->number], y, video.runs.lists[video.runs.list_of_row[y]],
+				zoomed->first_drawn, scrolled_span, &scrolled);
+		}
+		else
+			draw_row(&video.layers[LAYER_NBG0 + zoomed->number], y, video.runs.lists[video.runs.list_of_row[y]],
+				zoomed->first_drawn, zoomed_pixel, &row);
 	}
 }
 
@@ -547,22 +630,6 @@ static void draw_zoomed(int number)
 	}
 }
 
-typedef struct scrolled_row
-{
-	int pages[2];
-	int bank;
-	int line;
-	int x_start;        /* source column at the left edge */
-	int x_step;
-} scrolled_row;
-
-static uint16_t scrolled_pixel(const void *source, int x)
-{
-	const scrolled_row *row = (const scrolled_row *)source;
-	const uint32_t column = (uint32_t)(row->x_start + row->x_step * (x - video.visible.left));
-
-	return page_pixel(row->pages[(column >> 9) & 1], row->bank, row->line, column & 0x1ff);
-}
 
 /* What NBG2 or NBG3 draws with, the same on every row */
 typedef struct scrolled_layer
@@ -600,8 +667,8 @@ static void draw_scrolled_rows(void *context, int first, int last)
 		row.pages[1] = scrolled->pages[((source_y >> 7) & 2) + 1];
 		row.bank = scrolled->bank;
 		row.line = source_y & 0xff;
-		draw_row(&video.layers[LAYER_NBG0 + scrolled->number], y, video.runs.lists[video.runs.list_of_row[y]],
-			scrolled->first_drawn, scrolled_pixel, &row);
+		draw_row_spans(&video.layers[LAYER_NBG0 + scrolled->number], y, video.runs.lists[video.runs.list_of_row[y]],
+			scrolled->first_drawn, scrolled_span, &row);
 	}
 }
 
@@ -626,21 +693,54 @@ static void draw_scrolled(int number)
 	s32_workers_rows(draw_scrolled_rows, &scrolled, video.visible.top, video.visible.bottom);
 }
 
-/* The text layer, with no scroll and no windows; the screen's flip turns the whole 512 x 256 map */
+/* The text layer (64 x 32 cells of 8x8, a 512 x 256 map), with no scroll and no windows; the screen's flip turns the
+   whole map. The cells' page and the bank of their graphics come from register 0x5C; the graphics are in video RAM
+   too, 32 bytes a character, four bytes a row, the high nibble first. A cell at a time, and the row marked empty
+   when it is all transparent, as the other layers' rows are. */
 static void draw_text_rows(void *context, int first, int last)
 {
 	const bool flip = *(const bool *)context;
+	const uint16_t control = video_register(0x5c);
+	const uint32_t cells = (uint32_t)((control >> 4) & 0x1f) << 11;
+	const uint32_t bank = (uint32_t)(control & 7) << 9;
+	/* the screen's columns the layer covers: its 320 in the middle of WIDE */
+	const int from = video.visible.left > video.side ? video.visible.left : video.side;
+	const int to = video.side && video.side + 319 < video.visible.right ? video.side + 319 : video.visible.right;
 
 	for (int y = first; y <= last; y++)
-		for (int x = video.visible.left; x <= video.visible.right; x++)
-		{
-			const int column = x - video.side;
+	{
+		uint16_t *pixels = video.layers[LAYER_TEXT].pixels[y];
+		const int source_y = flip ? 255 - y : y;
+		const uint32_t cell_row = cells | (uint32_t)(source_y >> 3) << 6;
+		bool empty = true;
 
-			if (column < 0 || column >= (video.side ? 320 : video.visible.right + 1))
-				video.layers[LAYER_TEXT].pixels[y][x] = 0;
+		for (int x = video.visible.left; x < from; x++)
+			pixels[x] = 0;
+		for (int x = to + 1; x <= video.visible.right; x++)
+			pixels[x] = 0;
+		for (int x = from; x <= to;)
+		{
+			const int source_x = flip ? 511 - (x - video.side) : x - video.side;
+			const uint16_t cell = video_word(cell_row | (uint32_t)(source_x >> 3));
+			const uint8_t *bytes = &s32_board.video_ram[(bank | (cell & 0x1ff)) * 32 + (uint32_t)(source_y & 7) * 4];
+			const uint16_t color = (uint16_t)(((cell >> 9) & 0x7f) << 4);
+			const int count = flip ? (source_x & 7) + 1 : 8 - (source_x & 7);    /* (the pixels left in this cell) */
+			const int end = x + count <= to + 1 ? x + count : to + 1;
+
+			if ((bytes[0] | bytes[1] | bytes[2] | bytes[3]) == 0)
+				for (; x < end; x++)
+					pixels[x] = 0;
 			else
-				video.layers[LAYER_TEXT].pixels[y][x] = flip ? text_pixel(255 - y, 511 - column) : text_pixel(y, column);
+				for (int pen_x = source_x & 7; x < end; x++, pen_x += flip ? -1 : 1)
+				{
+					const int pen = (pen_x & 1) ? (bytes[pen_x / 2] & 0x0f) : (bytes[pen_x / 2] >> 4);
+
+					pixels[x] = pen ? (uint16_t)(color | pen) : 0;
+					empty = empty && !pen;
+				}
 		}
+		video.layers[LAYER_TEXT].empty[y] = empty;
+	}
 }
 
 static void draw_text(void)
@@ -1209,6 +1309,28 @@ typedef struct mix_frame
 	mix_layer orders[16][8];
 } mix_frame;
 
+/* A sprite group's order on one row: without the layers wholly transparent on it, which the walk would only read a 0
+   from, and up to the backdrop (nothing after it is reached: only the layers above it blend). Made the first time a
+   pixel of the group comes up on the row. */
+static const mix_layer *row_order(const mix_frame *frame, int group, int y, mix_layer (*orders)[8], int *made)
+{
+	if (!bit(*made, group))
+	{
+		int count = 0;
+
+		for (const mix_layer *entry = frame->orders[group]; ; entry++)
+		{
+			if (entry->index <= LAYER_BITMAP && video.layers[entry->index].empty[y])
+				continue;
+			orders[group][count++] = *entry;
+			if (entry->index == LAYER_BACKDROP)
+				break;
+		}
+		*made |= 1 << group;
+	}
+	return orders[group];
+}
+
 static void mix_rows(void *context, int first, int last)
 {
 	const mix_frame *frame = (const mix_frame *)context;
@@ -1222,6 +1344,8 @@ static void mix_rows(void *context, int first, int last)
 		const int sprite_y = bit(frame->sprite_flips, 1) ? video.visible.bottom - (y - video.visible.top) : y;
 		int sprite_x = bit(frame->sprite_flips, 0) ? video.visible.right : video.visible.left;
 		const int sprite_dx = bit(frame->sprite_flips, 0) ? -1 : 1;
+		mix_layer orders[16][8];
+		int made = 0;
 
 		for (int index = LAYER_TEXT; index <= LAYER_BITMAP; index++)
 			rows[index] = video.layers[index].empty[y] ? transparent_row : video.layers[index].pixels[y];
@@ -1234,8 +1358,8 @@ static void mix_rows(void *context, int first, int last)
 			const int group = (sprite_pixel >> grouping.shift) & grouping.mask;
 			int shadow = 0;
 			int pixel;
-			const mix_layer *first_layer = top_layer(frame->orders[group], rows, x, sprite_pixel, frame->shadow_mask,
-				frame->sprite_bits, frame->shadow_pen, &pixel, &shadow);
+			const mix_layer *first_layer = top_layer(row_order(frame, group, y, orders, &made), rows, x, sprite_pixel,
+				frame->shadow_mask, frame->sprite_bits, frame->shadow_pen, &pixel, &shadow);
 			uint16_t color = palette_color(first_layer, pixel);
 			int red = (color & 0x1f) + frame->offsets[first_layer->offsets][0];
 			int green = ((color >> 5) & 0x1f) + frame->offsets[first_layer->offsets][1];

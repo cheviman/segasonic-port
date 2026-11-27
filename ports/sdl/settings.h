@@ -30,6 +30,8 @@ typedef struct port_settings
 	bool crt;                 /* a CRT's look over smooth pixels (over both) */
 	int wide;                 /* the console's wider picture: 0 off, 1 16:9, 2 16:10 (CONSOLE_WIDE_*) */
 	bool vsync;               /* each frame shown at the screen's refresh */
+	bool integer_scale;       /* the picture a whole number of times its pixels */
+	bool fps;                 /* the frames a second shown (the picture's corner, the window's title) */
 	double volume;            /* of the game's sound */
 	double sega_jingle_program;    /* the console's SEGA logo jingle: the sound driver's program (0-36) */
 	double sega_jingle_layer;      /* ... and the layer an octave under it (-1: none) */

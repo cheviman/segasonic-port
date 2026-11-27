@@ -420,6 +420,80 @@ static void clear_screen(const SDL_Rect *shown, double scale, int out_width, int
 
 #ifdef SEGASONIC_CONSOLE
 static SDL_Rect picture_shown;    /* where the last frame was on the screen */
+
+/* ---- OPTIONS > VIDEO > FPS: the frames shown a second, at the picture's top right and in the window's title, as
+   outrunners-port's and tmnt-port's ---- */
+
+#define FPS_GLYPHS "0123456789 FPS"
+
+/* FPS_GLYPHS' letters, 3 x 5 pixels of the game's: a row each, its high bit the left */
+static const uint8_t fps_glyphs[][5] = {
+	{ 7, 5, 5, 5, 7 }, { 2, 6, 2, 2, 7 }, { 7, 1, 7, 4, 7 }, { 7, 1, 7, 1, 7 }, { 5, 5, 7, 1, 1 },
+	{ 7, 4, 7, 1, 7 }, { 7, 4, 7, 5, 7 }, { 7, 1, 2, 2, 2 }, { 7, 5, 7, 5, 7 }, { 7, 5, 7, 1, 7 },
+	{ 0, 0, 0, 0, 0 }, { 7, 4, 6, 4, 4 }, { 6, 5, 6, 4, 4 }, { 3, 4, 2, 1, 6 }
+};
+static int fps_counted = -1;    /* the last half second's frames a second (-1: none counted yet) */
+
+/* A frame shown: the frames a second, each half second; the window says them in its title */
+static void count_fps(void)
+{
+	static uint64_t start;
+	static int frames;
+	static bool titled;
+	const uint64_t now = SDL_GetPerformanceCounter(), frequency = SDL_GetPerformanceFrequency();
+
+	if (!start)
+		start = now;
+	if (++frames < 2 || now - start < frequency / 2)
+		return;
+	fps_counted = (int)lround(frames * (double)frequency / (double)(now - start));
+	start = now;
+	frames = 0;
+	if (settings.fps || titled)
+	{
+		char title[64];
+
+		snprintf(title, sizeof(title), settings.fps ? WINDOW_TITLE " - %d FPS" : WINDOW_TITLE, fps_counted);
+		SDL_SetWindowTitle(window, title);
+		titled = settings.fps;
+	}
+}
+
+/* The frames a second at the top right of the picture 'shown', its letters the game's pixels, with a shadow */
+static void draw_fps(const SDL_Rect *shown)
+{
+	SDL_FRect cells[2][14 * 15];
+	int count = 0;
+	char text[16];
+	const int pixel = SDL_max(1, shown->h / S32_VIDEO_HEIGHT);
+	int x;
+
+	if (!settings.fps || fps_counted < 0)
+		return;
+	snprintf(text, sizeof(text), "%d FPS", SDL_min(fps_counted, 999));
+	x = shown->x + shown->w - (4 * (int)strlen(text) + 3) * pixel;
+	for (const char *letter = text; *letter; letter++, x += 4 * pixel)
+	{
+		const uint8_t *rows = fps_glyphs[strchr(FPS_GLYPHS, *letter) - FPS_GLYPHS];
+
+		for (int row = 0; row < 5; row++)
+			for (int column = 0; column < 3; column++)
+				if (rows[row] & (4 >> column))
+				{
+					cells[1][count] = (SDL_FRect){ (float)(x + column * pixel), (float)(shown->y + (4 + row) * pixel),
+						(float)pixel, (float)pixel };
+					cells[0][count] = cells[1][count];
+					cells[0][count].x += (float)pixel;
+					cells[0][count].y += (float)pixel;
+					count++;
+				}
+	}
+	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+	SDL_RenderFillRects(renderer, cells[0], count);
+	SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+	SDL_RenderFillRects(renderer, cells[1], count);
+	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+}
 #endif
 
 /* A game's frame a whole frame's time behind the game's pace (a screen a little slower than the board's 60 a
@@ -452,6 +526,10 @@ static void present(const uint32_t *pixels, int width, bool game_frame)
 	follow_screen(out_width, out_height);    /* (a Fold opened or closed: its picture, from the next frame) */
 #endif
 	scale = SDL_min((double)out_width / width, (double)out_height / S32_VIDEO_HEIGHT);
+#ifdef SEGASONIC_CONSOLE
+	if (settings.integer_scale && scale >= 1.0)
+		scale = floor(scale);    /* (OPTIONS > VIDEO > INTEGER SCALE: every pixel of the game's the same size) */
+#endif
 	shown.w = (int)(width * scale);
 	shown.h = (int)(S32_VIDEO_HEIGHT * scale);
 	shown.x = (out_width - shown.w) / 2;
@@ -506,6 +584,10 @@ static void present(const uint32_t *pixels, int width, bool game_frame)
 		clear_screen(&shown, scale, out_width, out_height);
 		SDL_RenderTexture(renderer, texture, &from, &to);
 	}
+#ifdef SEGASONIC_CONSOLE
+	count_fps();
+	draw_fps(&shown);
+#endif
 #ifdef SEGASONIC_TOUCH
 	touch_draw(renderer);    /* (over the picture: the touch screen's controls) */
 #endif
@@ -900,6 +982,8 @@ static void tell_console_settings(void)
 	console_window_settings.crt = settings.crt;
 	console_window_settings.wide = settings.wide;
 	console_window_settings.vsync = settings.vsync;
+	console_window_settings.integer_scale = settings.integer_scale;
+	console_window_settings.fps = settings.fps;
 	console_window_settings.volume = (int)lround(settings.volume * 5.0);
 	console_window_settings.title_music = (int)settings.title_music;
 	console_window_settings.continues = (int)settings.continues;
@@ -942,10 +1026,7 @@ static void fix_settings(void)
 #else
 	settings.wide = CONSOLE_WIDE_OFF;     /* (a 4:3 one: the game's own picture, twice its size on a handheld's 640 x 480) */
 #endif
-	settings.full_screen = true;
-	settings.smooth = true;
-	settings.bilinear = false;
-	settings.crt = false;
+	settings.full_screen = true;    /* (its pixels are the player's: OPTIONS > VIDEO, smooth at first, settings.c) */
 }
 #endif
 
@@ -1767,6 +1848,8 @@ static void on_frame_done(void)
 		settings.crt = console_window_settings.crt;
 		settings.wide = console_window_settings.wide;
 		settings.vsync = console_window_settings.vsync;
+		settings.integer_scale = console_window_settings.integer_scale;
+		settings.fps = console_window_settings.fps;
 		settings.volume = console_window_settings.volume / 5.0;
 		settings.title_music = console_window_settings.title_music;
 		settings.continues = console_window_settings.continues;

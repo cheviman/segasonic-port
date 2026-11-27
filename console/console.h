@@ -30,6 +30,8 @@ typedef struct
 	int wide;             /* CONSOLE_WIDE_*: a wider picture, the stages wider (console_wide_now), the rest
 	                         between bars; 16:10 the same game, the window's middle narrower (the Steam Deck) */
 	bool vsync;           /* VSYNC: each frame shown at the screen's refresh (a computer's) */
+	bool integer_scale;   /* INTEGER SCALE: the picture a whole number of times its pixels */
+	bool fps;             /* FPS: the frames a second at the picture's top right and in the window's title */
 	int volume;           /* 0-10: 5 is the game's own */
 	int title_music;      /* the sound id of the song the title plays (SOUND TEST picks it) */
 	int continues;        /* a game's continues, 0-9, or -1: free play (CONTINUES) */

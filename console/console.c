@@ -555,6 +555,8 @@ enum
 	OPTION_PIXELS,
 	OPTION_WIDE,
 	OPTION_VSYNC,
+	OPTION_INTEGER_SCALE,
+	OPTION_FPS,
 	OPTION_VOLUME,
 	OPTION_CONTROLS,
 	OPTION_TRACKBALL,
@@ -565,8 +567,8 @@ enum
 };
 
 static const char *const option_names[OPTION_COUNT] = {
-	"DIFFICULTY", "VITALITY", "CONTINUES", "VIDEO", "WINDOW", "FULL SCREEN", "PIXELS", "WIDE", "VSYNC", "VOLUME",
-	"CONTROLS", "TRACKBALL", "SOUND TEST", "STAGE SELECT", "BACK"
+	"DIFFICULTY", "VITALITY", "CONTINUES", "VIDEO", "WINDOW", "FULL SCREEN", "PIXELS", "WIDE", "VSYNC",
+	"INTEGER SCALE", "FPS", "VOLUME", "CONTROLS", "TRACKBALL", "SOUND TEST", "STAGE SELECT", "BACK"
 };
 
 /* WIDE's values in OPTIONS' order (the narrower first), and their names there */
@@ -574,22 +576,27 @@ static const int wide_order[CONSOLE_WIDE_KINDS] = { CONSOLE_WIDE_OFF, CONSOLE_WI
 static const char *const wide_names[CONSOLE_WIDE_KINDS] = { "< OFF >", "< 16:9 >", "< 16:10 >" };
 
 /* The pages: OPTIONS, and VIDEO under it (its BACK goes back to OPTIONS). A game device's build
-   (SEGASONIC_HANDHELD) has no VIDEO: its picture is fixed; nor CONTROLS where the device's controls are fixed
+   (SEGASONIC_HANDHELD) has a VIDEO of its own, with what its one screen leaves to the player: PIXELS, INTEGER
+   SCALE and FPS (the ports' list, tmnt-port's devices'); no CONTROLS where the device's controls are fixed
    (the Switch), but where they may need putting right (SEGASONIC_CONTROLS_PAGE: a handheld's own buttons).
-   TRACKBALL (a game of its own, on the how to play's floor) is the computers' alone, as VIDEO is */
+   TRACKBALL (a game of its own, on the how to play's floor) is the computers' alone */
 static const int main_options[] = {
 #if defined(SEGASONIC_HANDHELD) && defined(SEGASONIC_CONTROLS_PAGE)
-	OPTION_DIFFICULTY, OPTION_VITALITY, OPTION_CONTINUES, OPTION_CONTROLS, OPTION_VOLUME,
+	OPTION_DIFFICULTY, OPTION_VITALITY, OPTION_CONTINUES, OPTION_VIDEO, OPTION_CONTROLS, OPTION_VOLUME,
 #elif defined(SEGASONIC_HANDHELD)
-	OPTION_DIFFICULTY, OPTION_VITALITY, OPTION_CONTINUES, OPTION_VOLUME,
+	OPTION_DIFFICULTY, OPTION_VITALITY, OPTION_CONTINUES, OPTION_VIDEO, OPTION_VOLUME,
 #else
 	OPTION_DIFFICULTY, OPTION_VITALITY, OPTION_CONTINUES, OPTION_VIDEO, OPTION_CONTROLS, OPTION_TRACKBALL,
 	OPTION_VOLUME,
 #endif
 	OPTION_SOUND_TEST, OPTION_STAGE_SELECT, OPTION_BACK
 };
-static const int video_options[] = { OPTION_WINDOW, OPTION_FULL_SCREEN, OPTION_PIXELS, OPTION_WIDE, OPTION_VSYNC,
-	OPTION_BACK };
+#ifdef SEGASONIC_HANDHELD
+static const int video_options[] = { OPTION_PIXELS, OPTION_INTEGER_SCALE, OPTION_FPS, OPTION_BACK };
+#else
+static const int video_options[] = { OPTION_WINDOW, OPTION_FULL_SCREEN, OPTION_PIXELS, OPTION_INTEGER_SCALE,
+	OPTION_WIDE, OPTION_VSYNC, OPTION_FPS, OPTION_BACK };
+#endif
 
 #define MAIN_OPTIONS  ((int)(sizeof(main_options) / sizeof(main_options[0])))
 #define VIDEO_OPTIONS ((int)(sizeof(video_options) / sizeof(video_options[0])))
@@ -674,6 +681,12 @@ static void option_value(int option, char *text)
 		return;
 	case OPTION_VSYNC:
 		strcpy(text, console_window_settings.vsync ? "< ON  >" : "< OFF >");
+		return;
+	case OPTION_INTEGER_SCALE:
+		strcpy(text, console_window_settings.integer_scale ? "< ON  >" : "< OFF >");
+		return;
+	case OPTION_FPS:
+		strcpy(text, console_window_settings.fps ? "< ON  >" : "< OFF >");
 		return;
 	case OPTION_PIXELS:
 		strcpy(text, console_window_settings.crt ? "< CRT >" : console_window_settings.bilinear ? "< BILINEAR >"
@@ -821,6 +834,14 @@ static void change_option(int option, int step)
 		break;
 	case OPTION_VSYNC:
 		console_window_settings.vsync = !console_window_settings.vsync;
+		console_window_settings.changed = true;
+		break;
+	case OPTION_INTEGER_SCALE:
+		console_window_settings.integer_scale = !console_window_settings.integer_scale;
+		console_window_settings.changed = true;
+		break;
+	case OPTION_FPS:
+		console_window_settings.fps = !console_window_settings.fps;
 		console_window_settings.changed = true;
 		break;
 	case OPTION_PIXELS:

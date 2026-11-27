@@ -36,11 +36,17 @@ port_settings settings = {
 	.stick_dead_zone = 15.0,
 	.window_scale = 3.0,
 	.full_screen = false,
+#ifdef SEGASONIC_HANDHELD
+	.smooth = true,           /* (a device's screen: smooth pixels at first, OPTIONS > VIDEO > PIXELS) */
+#else
 	.smooth = false,
+#endif
 	.bilinear = false,
 	.crt = false,
 	.wide = 0,
 	.vsync = true,
+	.integer_scale = false,
+	.fps = false,
 	.volume = 1.0,
 	.sega_jingle_program = 13.0,
 	.sega_jingle_layer = 2.0,
@@ -117,6 +123,13 @@ static const entry entries[] = {
 		"yes: each frame shown at the screen's refresh, with no tearing (the game keeps its own pace: a frame a\n"
 		"frame late is left out); no: as soon as it is drawn (OPTIONS > VIDEO > VSYNC)",
 		NULL, &settings.vsync, 0.0, 0.0 },
+	{ "video", "integer_scale",
+		"yes: the picture a whole number of times its pixels, every pixel the same size (OPTIONS > VIDEO >\n"
+		"INTEGER SCALE); no: as large as the window or the screen lets it",
+		NULL, &settings.integer_scale, 0.0, 0.0 },
+	{ "video", "fps",
+		"yes: the frames a second at the picture's top right and in the window's title (OPTIONS > VIDEO > FPS)",
+		NULL, &settings.fps, 0.0, 0.0 },
 	{ "sound", "volume",
 		"the game's sound, from 0 (none) to 2 (twice as loud)",
 		&settings.volume, NULL, 0.0, 2.0 },
